@@ -21,6 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menu = StatusMenu(bridge: bridge, adb: adb)
+        adb.isStreaming = { [bridge] in
+            let s = bridge.stats
+            return s.micConnected || s.speakerConnected
+        }
         Log.info("USB Audio Bridge helper starting")
         // Capturing BlackHole 16ch counts as microphone access; ask once up front.
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -28,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { self.startBridge() }
         }
         if arguments.contains("--show-menu") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.menu?.popUp() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.menu?.showForSnapshot(seconds: 6) }
         }
     }
 

@@ -16,6 +16,10 @@ final class AdbWatcher {
     private let lock = NSLock()
     private var _devices: [String: Device] = [:]
     private var forceSetup = false
+    /// Set by the app delegate: true while the tablet app has at least one live audio socket.
+    var isStreaming: () -> Bool = { false }
+    private var idleSince: Date?
+    private var lastRelaunch = Date.distantPast
     let adbPath: String? = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return ["/opt/homebrew/bin/adb", "/usr/local/bin/adb", "\(home)/Library/Android/sdk/platform-tools/adb",
@@ -73,6 +77,7 @@ final class AdbWatcher {
                     Log.info("reverse rules missing on \(serial); re-applying")
                     applyReverse(serial)
                 }
+                relaunchIfIdle(serial)
                 continue
             }
             setup(serial)
@@ -101,6 +106,24 @@ final class AdbWatcher {
         lock.lock()
         _devices[serial] = Device(serial: serial, model: model.isEmpty ? serial : model, ready: reversed, note: note)
         lock.unlock()
+    }
+
+    /// The app can die without the cable moving (update, force stop, low memory); bring it back.
+    private func relaunchIfIdle(_ serial: String) {
+        if isStreaming() {
+            idleSince = nil
+            return
+        }
+        let now = Date()
+        guard let since = idleSince else {
+            idleSince = now
+            return
+        }
+        guard now.timeIntervalSince(since) > 10, now.timeIntervalSince(lastRelaunch) > 15 else { return }
+        lastRelaunch = now
+        Log.info("no audio from \(serial) for 10 s; relaunching the app")
+        _ = adb(["-s", serial, "shell", "pm", "grant", Self.package, "android.permission.RECORD_AUDIO"])
+        _ = adb(["-s", serial, "shell", "am", "start", "-n", Self.activity])
     }
 
     @discardableResult

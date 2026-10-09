@@ -11,6 +11,7 @@ final class Bridge {
         var rttMs: Double?
         var micBufferMs: Double = 0
         var audioError: String?
+        var micMaxGapMs: Double = 0
     }
 
     static let micDeviceName = "BlackHole 2ch"       // Mac apps record from this
@@ -37,11 +38,13 @@ final class Bridge {
         }
     }
 
-    // Tablet mic, mono, 200 ms max. Playback starts once 20 ms is queued and trims back when it exceeds 80 ms.
+    // Tablet mic, mono, 200 ms max. Playback starts once 15 ms is queued and trims back when it exceeds 45 ms.
     private let micRing = FloatRing(capacity: 9600)
-    private let micTarget = 960
-    private let micMax = 3840
+    private let micTarget = 720
+    private let micMax = 2160
     private var micPrimed = false
+    private var micWindowMin = Int.max
+    private var micWindowFrames = 0
     private let mono = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
 
     // Mac output (BlackHole 16ch ch1-2), interleaved stereo, 100 ms max.
@@ -79,8 +82,9 @@ final class Bridge {
                 Thread.sleep(forTimeInterval: 5)
                 let s = self.stats
                 guard s.micConnected || s.speakerConnected else { continue }
-                Log.info(String(format: "stats mic=%@ level=%.1fdB buf=%.0fms speaker=%@ level=%.1fdB rtt=%@",
-                                s.micConnected ? "on" : "off", s.micLevelDb, s.micBufferMs,
+                self.lock.lock(); self._stats.micMaxGapMs = 0; self.lock.unlock()
+                Log.info(String(format: "stats mic=%@ level=%.1fdB buf=%.0fms maxGap=%.0fms speaker=%@ level=%.1fdB rtt=%@",
+                                s.micConnected ? "on" : "off", s.micLevelDb, s.micBufferMs, s.micMaxGapMs,
                                 s.speakerConnected ? "on" : "off", s.speakerLevelDb,
                                 s.rttMs.map { String(format: "%.1fms", $0) } ?? "-"))
             }
@@ -130,9 +134,14 @@ final class Bridge {
             defer { samples.deallocate() }
             var peak: Float = -90
             var lastUi = DispatchTime.now().uptimeNanoseconds
+            var lastArrival: UInt64 = 0
+            var maxGap: UInt64 = 0
             while let frame = conn.readFrame(into: &buffer) {
                 switch frame.type {
                 case Wire.audio:
+                    let arrival = DispatchTime.now().uptimeNanoseconds
+                    if lastArrival != 0 { maxGap = max(maxGap, arrival - lastArrival) }
+                    lastArrival = arrival
                     let n = frame.length / 2
                     buffer.withUnsafeBytes { raw in
                         for i in 0..<n {
@@ -144,7 +153,11 @@ final class Bridge {
                     peak = max(peak, levelDb(samples, n))
                     let now = DispatchTime.now().uptimeNanoseconds
                     if now - lastUi > 100_000_000 {
-                        self.lock.lock(); self._stats.micLevelDb = peak; self.lock.unlock()
+                        self.lock.lock()
+                        self._stats.micLevelDb = peak
+                        self._stats.micMaxGapMs = max(self._stats.micMaxGapMs, Double(maxGap) / 1_000_000)
+                        self.lock.unlock()
+                        maxGap = 0
                         peak = -90
                         lastUi = now
                     }
@@ -207,6 +220,14 @@ final class Bridge {
             }
         }
         if available > micMax { micRing.discard(available - micTarget) }
+        // Jitter-buffer trim: if the queue never dipped near the target during the last second, drop the surplus.
+        micWindowMin = min(micWindowMin, available)
+        micWindowFrames += frames
+        if micWindowFrames >= 48_000 {
+            if micWindowMin != Int.max && micWindowMin > micTarget / 3 + 240 { micRing.discard(micWindowMin - micTarget / 3) }
+            micWindowMin = Int.max
+            micWindowFrames = 0
+        }
         let n = min(frames, 8192)
         let got = micRing.read(into: mono, n)
         if got < n {
@@ -226,7 +247,7 @@ final class Bridge {
     }
 
     private func sendLoop() {
-        let chunkFrames = 480 // 10 ms
+        let chunkFrames = 240 // 5 ms
         let floats = UnsafeMutablePointer<Float>.allocate(capacity: chunkFrames * 2)
         var bytes = [UInt8](repeating: 0, count: chunkFrames * 4)
         var peak: Float = -90

@@ -123,8 +123,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         rebuild()
     }
 
-    /// Debug aid for screenshots: opens the menu under the status item.
-    func popUp() {
-        item.button?.performClick(nil)
+    /// Debug aid for screenshots (`--show-menu`): shows the menu near the top-right corner for a few
+    /// seconds, even when a menu bar manager hides the status item, then closes it.
+    func showForSnapshot(seconds: Double) {
+        guard let screen = NSScreen.main else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [menu] in menu.cancelTracking() }
+        menuOpen = true
+        rebuild()
+        let origin = NSPoint(x: screen.visibleFrame.maxX - 460, y: screen.visibleFrame.maxY - 8)
+        menu.popUp(positioning: nil, at: origin, in: nil)
+        menuOpen = false
     }
 }
