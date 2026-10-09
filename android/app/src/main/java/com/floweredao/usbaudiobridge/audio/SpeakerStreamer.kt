@@ -66,14 +66,24 @@ class SpeakerStreamer : Thread("uab-speaker") {
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .build(),
             )
-            .setBufferSizeInBytes(maxOf(minBuf, BYTES_PER_MS * 30))
+            .setBufferSizeInBytes(maxOf(minBuf, BYTES_PER_MS * 80))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build()
         try {
             track.play()
             setLink(LinkState.Connected)
-            Log.i(TAG, "speaker connected (track buffer ${track.bufferSizeInFrames} frames)")
+            // Start with a small device buffer and grow it only when the track actually underruns.
+            var targetMs = START_BUFFER_MS
+            track.bufferSizeInFrames = minOf(track.bufferCapacityInFrames, targetMs * FRAMES_PER_MS)
+            var underruns = track.underrunCount
+            val startedAt = SystemClock.elapsedRealtime()
+            var windowStart = startedAt
+            var windowMinMs = Float.MAX_VALUE
+            var skipMs = 0f
+            var lastArrival = 0L
+            var maxGapMs = 0L
+            Log.i(TAG, "speaker connected (capacity ${track.bufferCapacityInFrames} frames, using ${track.bufferSizeInFrames})")
             var written = 0L
             var volume = -1f
             var lastPing = 0L
@@ -90,12 +100,34 @@ class SpeakerStreamer : Thread("uab-speaker") {
                 }
                 reader.next()
                 if (handleControl(reader, writer) || reader.type != Protocol.TYPE_AUDIO) continue
+                val arrival = SystemClock.elapsedRealtime()
+                if (lastArrival != 0L) maxGapMs = maxOf(maxGapMs, arrival - lastArrival)
+                lastArrival = arrival
 
                 val played = track.playbackHeadPosition.toLong() and 0xffffffffL
                 val queuedMs = (written - played).coerceAtLeast(0) * 1000f / Protocol.SAMPLE_RATE
                 val backlogMs = reader.backlog().toFloat() / BYTES_PER_MS
                 val bufferMs = queuedMs + backlogMs
-                if (bufferMs > MAX_BUFFER_MS) {
+                if (track.underrunCount != underruns) {
+                    underruns = track.underrunCount
+                    // Underruns while the stream is still starting up say nothing about network jitter.
+                    if (SystemClock.elapsedRealtime() - startedAt > WARMUP_MS && targetMs < MAX_TARGET_MS) {
+                        targetMs += 5
+                        track.bufferSizeInFrames = minOf(track.bufferCapacityInFrames, targetMs * FRAMES_PER_MS)
+                    }
+                }
+                // Jitter-buffer trim: if the buffer never ran low during the last second, the extra is pure delay.
+                windowMinMs = minOf(windowMinMs, bufferMs)
+                val now0 = SystemClock.elapsedRealtime()
+                if (now0 - windowStart >= 1000) {
+                    if (windowMinMs > targetMs + TRIM_SLACK_MS) skipMs = windowMinMs - targetMs
+                    windowStart = now0
+                    windowMinMs = Float.MAX_VALUE
+                }
+                if (skipMs > 0f) {
+                    skipMs -= reader.length / BYTES_PER_MS.toFloat()
+                    dropped++
+                } else if (bufferMs > targetMs + NETWORK_SLACK_MS) {
                     // Drop to catch up: keeps latency bounded when the clocks drift or a burst arrives.
                     dropped++
                 } else {
@@ -117,9 +149,10 @@ class SpeakerStreamer : Thread("uab-speaker") {
                     lastPing = now
                 }
                 if (now - lastLog >= 1000) {
-                    Log.i(TAG, "speaker level=%.1f dBFS buffer=%.0f ms dropped=%d rtt=%s".format(
-                        db, bufferMs, dropped, BridgeState.status.value.rttMs?.let { "%.1f".format(it) } ?: "-"))
+                    Log.i(TAG, "speaker level=%.1f dBFS buffer=%.0f ms target=%d ms underruns=%d dropped=%d maxGap=%d ms rtt=%s".format(
+                        db, bufferMs, targetMs, underruns, dropped, maxGapMs, BridgeState.status.value.rttMs?.let { "%.1f".format(it) } ?: "-"))
                     lastLog = now
+                    maxGapMs = 0
                 }
             }
         } finally {
@@ -138,6 +171,11 @@ class SpeakerStreamer : Thread("uab-speaker") {
     companion object {
         private const val TAG = "UsbAudioBridge"
         private const val BYTES_PER_MS = Protocol.SAMPLE_RATE / 1000 * 4
-        private const val MAX_BUFFER_MS = 70f
+        private const val FRAMES_PER_MS = Protocol.SAMPLE_RATE / 1000
+        private const val START_BUFFER_MS = 10
+        private const val MAX_TARGET_MS = 40
+        private const val NETWORK_SLACK_MS = 25
+        private const val TRIM_SLACK_MS = 6
+        private const val WARMUP_MS = 1500L
     }
 }

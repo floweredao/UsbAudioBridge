@@ -48,6 +48,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -333,7 +334,16 @@ private fun ChannelCard(
                     Text("${(sliderValue * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Slider(value = sliderValue, onValueChange = onSlider, valueRange = sliderRange)
+                Slider(
+                    value = sliderValue,
+                    onValueChange = onSlider,
+                    valueRange = sliderRange,
+                    colors = SliderDefaults.colors(
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        activeTickColor = Color.Transparent,
+                        inactiveTickColor = Color.Transparent,
+                    ),
+                )
             }
             extra()
         }

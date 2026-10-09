@@ -182,6 +182,6 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
 
     companion object {
         private const val TAG = "UsbAudioBridge"
-        const val FRAME_SAMPLES = Protocol.SAMPLE_RATE / 100 // 10 ms
+        const val FRAME_SAMPLES = Protocol.SAMPLE_RATE / 200 // 5 ms
     }
 }
