@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">USB Audio Bridge</string>
+    <string name="tagline">Your tablet as the Mac\'s microphone and speaker, over one USB cable</string>
+    <string name="status_connected">Connected over USB</string>
+    <string name="status_waiting">Waiting for Mac</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="action_start">Start</string>
+    <string name="action_stop">Stop</string>
+    <string name="info_cable">USB cable</string>
+    <string name="cable_plugged">Plugged in</string>
+    <string name="cable_unplugged">Not detected</string>
+    <string name="info_rtt">Round trip</string>
+    <string name="info_latency">Playback delay</string>
+    <string name="info_format">Format</string>
+    <string name="mic_title">Microphone</string>
+    <string name="mic_caption">Tablet → Mac</string>
+    <string name="mic_gain">Mic gain</string>
+    <string name="echo_cancel">Echo cancellation</string>
+    <string name="echo_cancel_caption">Use the tablet\'s voice processing. Leave off when the Mac app cancels echo itself.</string>
+    <string name="mic_permission">Microphone permission is needed. Reopen the app to allow it.</string>
+    <string name="mic_blocked">The microphone is busy or blocked. Close other apps using it, then open this app with the screen on.</string>
+    <string name="speaker_title">Speaker</string>
+    <string name="speaker_caption">Mac → Tablet</string>
+    <string name="speaker_volume">Volume</string>
+    <string name="speaker_hint">Plays whatever the Mac sends to BlackHole 16ch.</string>
+    <string name="state_on">Streaming</string>
+    <string name="state_waiting">Waiting</string>
+    <string name="state_off">Off</string>
+    <string name="battery_title">Keep running with the screen off</string>
+    <string name="battery_body">Allow the app to ignore battery optimization so the bridge is never paused.</string>
+    <string name="battery_action">Allow</string>
+    <string name="footer_hint">On the Mac, choose BlackHole 2ch as the input and BlackHole 16ch as the output. The Mac helper sets up the USB link automatically.</string>
+    <string name="notif_channel">Audio bridge</string>
+    <string name="notif_connected">Mic: %1$s · Speaker: %2$s</string>
+    <string name="notif_waiting">Waiting for the Mac over USB…</string>
+</resources>
