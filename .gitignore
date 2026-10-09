@@ -1,0 +1,9 @@
+.work/
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+mac/.build/
+mac/dist/
