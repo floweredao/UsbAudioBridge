@@ -9,6 +9,10 @@ Mac apps ◄── BlackHole 2ch  ◄── helper ◄──USB (adb reverse, TC
 
 Tools like AudioRelay send audio over UDP, which `adb` cannot forward. This project streams 48 kHz 16-bit PCM over TCP instead, so the existing USB debugging connection carries it.
 
+| Dark | Light |
+| --- | --- |
+| ![Tablet app, dark](docs/tablet-dark.png) | ![Tablet app, light](docs/tablet-light.png) |
+
 ## Pieces
 
 | Folder | What it is |

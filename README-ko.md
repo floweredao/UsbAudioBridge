@@ -9,6 +9,10 @@
 
 AudioRelay 같은 앱은 소리를 UDP로 보내는데, adb는 UDP를 넘기지 못해요. 이 프로젝트는 48kHz 16비트 PCM을 TCP로 보내서 이미 연결된 USB 디버깅 선으로 그대로 오가게 합니다.
 
+| 다크 | 라이트 |
+| --- | --- |
+| ![태블릿 앱 다크](docs/tablet-dark.png) | ![태블릿 앱 라이트](docs/tablet-light.png) |
+
 ## 구성
 
 | 폴더 | 내용 |
