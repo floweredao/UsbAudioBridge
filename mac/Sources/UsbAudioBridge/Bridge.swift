@@ -1,7 +1,7 @@
 import CoreAudio
 import Foundation
 
-/// Moves audio between the tablet sockets and the two BlackHole devices.
+/// Moves audio between the tablet sockets and the Tablet Audio driver's hidden bridge port.
 final class Bridge {
     struct Stats {
         var micConnected = false
@@ -14,8 +14,10 @@ final class Bridge {
         var micMaxGapMs: Double = 0
     }
 
-    static let micDeviceName = "BlackHole 2ch"       // Mac apps record from this
-    static let speakerDeviceName = "BlackHole 16ch"  // Mac apps play to this
+    static let deviceName = "Tablet Audio"  // Mac apps play to and record from this
+    static let deviceUID = "UsbAudioBridge.TabletAudio"
+    // Hidden twin of Tablet Audio: its input carries what apps play, its output feeds what apps record.
+    static let portUID = "UsbAudioBridge.TabletAudio.BridgePort"
 
     private let lock = NSLock()
     private var micConn: LaneGroup?
@@ -47,11 +49,11 @@ final class Bridge {
     private var micWindowFrames = 0
     private let mono = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
 
-    // Mac output (BlackHole 16ch ch1-2), interleaved stereo, 100 ms max.
+    // Mac output (Tablet Audio, via the bridge port input), interleaved stereo, 100 ms max.
     private let speakerRing = FloatRing(capacity: 9600)
     private let speakerSignal = DispatchSemaphore(value: 0)
 
-    // 128-frame (2.7 ms) device I/O on both BlackHole sides; the loop test keeps 256 to stay comparable.
+    // 128-frame (2.7 ms) device I/O on both port directions; the loop test keeps 256 to stay comparable.
     private lazy var output = OutputUnit(channels: 2, bufferFrames: 128) { [unowned self] out, frames, _ in self.renderMic(out, frames) }
     private lazy var input = InputUnit(channels: 2, bufferFrames: 128) { [unowned self] samples, frames, _ in self.captureSpeaker(samples, frames) }
 
@@ -96,11 +98,12 @@ final class Bridge {
 
     private func startAudio() {
         do {
-            guard let out = AudioDevices.find(Self.micDeviceName) else { throw BridgeError.audio("\(Self.micDeviceName) is not installed") }
-            guard let inp = AudioDevices.find(Self.speakerDeviceName) else { throw BridgeError.audio("\(Self.speakerDeviceName) is not installed") }
-            try output.start(device: out)
-            try input.start(device: inp)
-            Log.info("audio started: tablet mic -> \(Self.micDeviceName), \(Self.speakerDeviceName) -> tablet speaker")
+            guard let port = AudioDevices.find(uid: Self.portUID) else {
+                throw BridgeError.audio("\(Self.deviceName) driver is not installed (driver/install.sh)")
+            }
+            try output.start(device: port)
+            try input.start(device: port)
+            Log.info("audio started: tablet mic -> \(Self.deviceName) input, \(Self.deviceName) output -> tablet speaker")
         } catch {
             Log.info("audio error: \(error)")
             lock.lock(); _stats.audioError = "\(error)"; lock.unlock()
@@ -241,7 +244,7 @@ final class Bridge {
 
     // MARK: audio paths
 
-    /// Real-time: tablet mic -> BlackHole 2ch (mono duplicated to both channels).
+    /// Real-time: tablet mic -> Tablet Audio input (mono duplicated to both channels).
     private func renderMic(_ out: UnsafeMutablePointer<Float>, _ frames: Int) {
         let available = micRing.available
         if !micPrimed {
@@ -271,7 +274,7 @@ final class Bridge {
         }
     }
 
-    /// Real-time: BlackHole 16ch ch1-2 -> queue for the tablet.
+    /// Real-time: Tablet Audio output -> queue for the tablet.
     private func captureSpeaker(_ samples: UnsafePointer<Float>, _ frames: Int) {
         speakerRing.write(samples, frames * 2)
         speakerSignal.signal()

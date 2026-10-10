@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return s.micConnected || s.speakerConnected
         }
         Log.info("USB Audio Bridge helper starting")
-        // Capturing BlackHole 16ch counts as microphone access; ask once up front.
+        // Capturing the Tablet Audio bridge port counts as microphone access; ask once up front.
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             Log.info("microphone access granted=\(granted)")
             DispatchQueue.main.async { self.startBridge() }

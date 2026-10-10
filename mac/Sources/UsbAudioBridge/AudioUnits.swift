@@ -29,6 +29,22 @@ enum AudioDevices {
     static func find(_ name: String) -> AudioDeviceID? {
         all().first { self.name(of: $0) == name }
     }
+
+    /// Also resolves hidden devices, which kAudioHardwarePropertyDevices leaves out.
+    static func find(uid: String) -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var cfUID = uid as CFString
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = withUnsafeMutablePointer(to: &cfUID) {
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address,
+                                       UInt32(MemoryLayout<CFString>.size), $0, &size, &id)
+        }
+        return status == noErr && id != kAudioObjectUnknown ? id : nil
+    }
 }
 
 private func check(_ status: OSStatus, _ what: String) throws {

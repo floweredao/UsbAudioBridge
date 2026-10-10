@@ -2,13 +2,14 @@ import AudioToolbox
 import CoreAudio
 import Foundation
 
-/// `--loop-test <seconds>`: plays 1 kHz bursts into BlackHole 16ch (-> tablet speaker),
-/// listens on BlackHole 2ch (<- tablet mic) and reports the acoustic round-trip delay.
+/// `--loop-test <seconds>`: plays 1 kHz bursts into Tablet Audio (-> tablet speaker),
+/// listens on Tablet Audio's input (<- tablet mic) and reports the acoustic round-trip delay.
 enum LoopTest {
     static func run(seconds: Double) -> String {
-        guard let outID = AudioDevices.find(Bridge.speakerDeviceName), let inID = AudioDevices.find(Bridge.micDeviceName) else {
-            return "FAIL devices missing"
+        guard let device = AudioDevices.find(uid: Bridge.deviceUID) else {
+            return "FAIL \(Bridge.deviceName) missing"
         }
+        let outID = device, inID = device
         let lock = NSLock()
         var emissions: [UInt64] = []
         var detections: [UInt64] = []
@@ -81,7 +82,7 @@ enum LoopTest {
         let sorted = delays.sorted()
         let median = sorted.isEmpty ? nil : sorted[sorted.count / 2]
         var report = "bursts=\(emissions.count) detected=\(delays.count)\n"
-        report += "BlackHole 2ch level during bursts=\(db(burstRms)) between bursts=\(db(quietRms))\n"
+        report += "\(Bridge.deviceName) input level during bursts=\(db(burstRms)) between bursts=\(db(quietRms))\n"
         report += "loop delays ms=\(delays.map { String(format: "%.1f", $0) }.joined(separator: ","))\n"
         report += "median loop delay=\(median.map { String(format: "%.1f ms", $0) } ?? "n/a")\n"
         report += delays.count * 2 >= max(emissions.count, 1) ? "PASS\n" : "FAIL not enough bursts detected\n"

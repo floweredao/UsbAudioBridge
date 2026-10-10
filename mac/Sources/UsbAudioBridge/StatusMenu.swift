@@ -65,8 +65,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if let error = s.audioError { menu.addItem(info("⚠︎ \(error)")) }
 
         menu.addItem(.separator())
-        menu.addItem(info("Mic  tablet → \(Bridge.micDeviceName):  \(describe(s.micConnected, bridge.micEnabled, s.micLevelDb))"))
-        menu.addItem(info("Speaker  \(Bridge.speakerDeviceName) → tablet:  \(describe(s.speakerConnected, bridge.speakerEnabled, s.speakerLevelDb))"))
+        menu.addItem(info("Mic  tablet → \(Bridge.deviceName):  \(describe(s.micConnected, bridge.micEnabled, s.micLevelDb))"))
+        menu.addItem(info("Speaker  \(Bridge.deviceName) → tablet:  \(describe(s.speakerConnected, bridge.speakerEnabled, s.speakerLevelDb))"))
         if let rtt = s.rttMs, connected {
             menu.addItem(info(String(format: "Latency  round trip %.1f ms · mic buffer %.0f ms", rtt, s.micBufferMs)))
         }

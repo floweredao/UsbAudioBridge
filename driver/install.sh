@@ -12,5 +12,6 @@ else
   sudo cp -R build/TabletAudio.driver "$DEST"
   sudo chown -R root:wheel "$DEST"
 fi
-sudo launchctl kickstart -k system/com.apple.audio.coreaudiod
+# launchctl kickstart is refused under SIP; launchd respawns coreaudiod after killall.
+sudo killall coreaudiod
 echo "done; audio devices reload in a few seconds"
