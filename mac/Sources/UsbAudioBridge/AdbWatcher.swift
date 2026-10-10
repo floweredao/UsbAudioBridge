@@ -93,7 +93,7 @@ final class AdbWatcher {
         if !installed {
             if let apk = Bundle.main.url(forResource: "UsbAudioBridge", withExtension: "apk") {
                 Log.info("installing app on \(serial)")
-                let (code, out) = adb(["-s", serial, "install", "-r", apk.path])
+                let (code, out) = adb(["-s", serial, "install", "-r", apk.path], timeout: 180)
                 if code != 0 { note = "App install failed"; Log.info("install failed: \(out)") }
             } else {
                 note = "Android app not installed"
@@ -134,24 +134,36 @@ final class AdbWatcher {
         return a == 0 && b == 0
     }
 
-    private func adb(_ args: [String]) -> (Int32, String) {
+    /// Runs adb with a deadline. When two adb server starts race, the losing `fork-server` can hang
+    /// before it ever answers, and its client then waits forever; without a deadline that froze this
+    /// whole watcher (no reverse re-apply, no relaunch) until someone killed the process by hand.
+    private func adb(_ args: [String], timeout: TimeInterval = 15) -> (Int32, String) {
         guard let adbPath else { return (-1, "") }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: adbPath)
         process.arguments = args
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        // Close both pipe ends explicitly: leaked descriptors piled up to the per-process limit
-        // after a day of polling and then every adb call failed with EBADF.
+        // Output goes to a temp file, not a pipe: a server forked by this client could inherit a pipe
+        // and keep it open, so reading to EOF would block; a file needs no EOF.
+        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("uab-adb-\(UUID().uuidString).log")
+        guard FileManager.default.createFile(atPath: outURL.path, contents: nil),
+              let out = try? FileHandle(forWritingTo: outURL) else { return (-1, "cannot create \(outURL.path)") }
         defer {
-            try? pipe.fileHandleForReading.close()
-            try? pipe.fileHandleForWriting.close()
+            try? out.close()
+            try? FileManager.default.removeItem(at: outURL)
         }
+        process.standardOutput = out
+        process.standardError = out
+        process.standardInput = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
         do { try process.run() } catch { return (-1, "\(error)") }
-        try? pipe.fileHandleForWriting.close()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        if done.wait(timeout: .now() + timeout) == .timedOut {
+            Log.info("adb \(args.joined(separator: " ")) timed out after \(Int(timeout)) s; killing it")
+            kill(process.processIdentifier, SIGKILL)
+            done.wait()
+            return (-1, "timed out")
+        }
+        let data = (try? Data(contentsOf: outURL)) ?? Data()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 }
