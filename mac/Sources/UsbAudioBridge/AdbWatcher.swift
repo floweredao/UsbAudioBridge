@@ -39,7 +39,8 @@ final class AdbWatcher {
         }
         let t = Thread { [unowned self] in
             while true {
-                self.poll()
+                // This thread has no run loop, so drain Foundation objects (pipes, file handles) every poll.
+                autoreleasepool { self.poll() }
                 Thread.sleep(forTimeInterval: 2)
             }
         }
@@ -141,7 +142,14 @@ final class AdbWatcher {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        // Close both pipe ends explicitly: leaked descriptors piled up to the per-process limit
+        // after a day of polling and then every adb call failed with EBADF.
+        defer {
+            try? pipe.fileHandleForReading.close()
+            try? pipe.fileHandleForWriting.close()
+        }
         do { try process.run() } catch { return (-1, "\(error)") }
+        try? pipe.fileHandleForWriting.close()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
