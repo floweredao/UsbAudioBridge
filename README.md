@@ -3,8 +3,8 @@
 Use an Android tablet as your Mac's **microphone and speaker over a single USB cable**. No Wi-Fi needed.
 
 ```
-Mac apps ──► BlackHole 16ch ──► helper ──USB (adb reverse, TCP 47124)──► tablet speaker
-Mac apps ◄── BlackHole 2ch  ◄── helper ◄──USB (adb reverse, TCP 47123)─── tablet microphone
+Mac apps ──► Tablet Audio (output) ──► helper ──USB (adb reverse, TCP 47124)──► tablet speaker
+Mac apps ◄── Tablet Audio (input)  ◄── helper ◄──USB (adb reverse, TCP 47123)─── tablet microphone
 ```
 
 Tools like AudioRelay send audio over UDP, which `adb` cannot forward. This project streams 48 kHz 16-bit PCM over TCP instead, so the existing USB debugging connection carries it.
@@ -18,17 +18,23 @@ Tools like AudioRelay send audio over UDP, which `adb` cannot forward. This proj
 | Folder | What it is |
 | --- | --- |
 | `android/` | Tablet app (Kotlin, Jetpack Compose, Material 3, minSdk 26, targetSdk 34). A foreground service records the mic and plays Mac audio, keeps running with the screen off, and reconnects automatically. |
-| `mac/` | Menu bar helper (Swift, macOS 15+). Watches `adb` for the tablet, runs `adb reverse`, installs the app if it is missing, grants its mic permission, opens the app, and moves audio between the tablet and the two BlackHole devices. |
+| `driver/` | **Tablet Audio**, a CoreAudio virtual device (Audio Server plug-in built on [libASPL](https://github.com/gavv/libASPL), MIT) with both an input and an output. Mac apps see one device. The plug-in also publishes a hidden *Tablet Audio Bridge Port* that only the helper opens; the two share a clock and are cross-wired (Tablet Audio output → port input, port output → Tablet Audio input), so nothing an app plays comes back on the Tablet Audio input. |
+| `mac/` | Menu bar helper (Swift, macOS 15+). Watches `adb` for the tablet, runs `adb reverse`, installs the app if it is missing, grants its mic permission, opens the app, and moves audio between the tablet and the Tablet Audio bridge port. |
 
 ## Requirements
 
-- Mac: [BlackHole 2ch and 16ch](https://existential.audio/blackhole/) (`brew install --cask blackhole-2ch blackhole-16ch`) at 48 kHz, plus `adb` (`brew install --cask android-platform-tools`).
+- Mac: the Tablet Audio driver from `driver/` (below), plus `adb` (`brew install --cask android-platform-tools`). BlackHole is no longer needed.
+- To build the driver: CMake (`brew install cmake`); libASPL is fetched at its `v3.1.2` tag during the build.
 - Tablet: Android 8.0 or later, with **USB debugging** enabled and this Mac authorized.
 - To build: Xcode 16+ (Swift 6 toolchain), JDK 17 (`brew install openjdk@17`), and Android SDK 35 (`brew install --cask android-commandlinetools`, then `sdkmanager "platforms;android-35" "build-tools;35.0.0"`).
 
 ## Build and install
 
 ```sh
+# Tablet Audio driver (asks for your password; restarts coreaudiod, so audio drops for a second)
+driver/build.sh
+driver/install.sh                 # driver/install.sh -u removes it
+
 # Android app
 cd android
 echo "sdk.dir=/opt/homebrew/share/android-commandlinetools" > local.properties
@@ -42,12 +48,12 @@ ditto "dist/USB Audio Bridge.app" "/Applications/USB Audio Bridge.app"
 open "/Applications/USB Audio Bridge.app"
 ```
 
-The first launch asks for **microphone access**. Allow it, because macOS treats reading BlackHole 16ch as microphone input.
+The first launch asks for **microphone access**. Allow it, because macOS treats reading the Tablet Audio bridge port as microphone input.
 
 ## Use
 
 1. Plug in the tablet. Within about two seconds the helper sets up `adb reverse` and opens the app, which wakes the screen.
-2. On the Mac, choose **BlackHole 16ch as the output** and **BlackHole 2ch as the input**, either system-wide or in a single app such as Zoom or Discord.
+2. On the Mac, choose **Tablet Audio** as the output and as the input, either system-wide or in a single app such as Zoom or Discord. The Mac volume keys work on it.
 3. The menu bar icon fills in once the tablet is streaming. Its menu shows:
    - the tablet's connection status
    - level and state for each direction
@@ -68,7 +74,7 @@ The first launch asks for **microphone access**. Allow it, because macOS treats 
 - Audio moves in 5 ms frames, and the helper uses 128-frame device buffers.
 - The tablet microphone delivers audio in 20 ms blocks on this hardware (no fast capture path), which sets a floor on the mic side.
 
-`--loop-test` measures the whole chain. It plays beeps into BlackHole 16ch, the tablet speaker plays them, the tablet mic hears them, and the helper times their arrival in BlackHole 2ch:
+`--loop-test` measures the whole chain. It plays beeps into Tablet Audio, the tablet speaker plays them, the tablet mic hears them, and the helper times their arrival on the Tablet Audio input:
 
 ```sh
 open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp/loop.txt; cat /tmp/loop.txt
@@ -81,11 +87,11 @@ open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp
 | Menu says *adb not found* | `brew install --cask android-platform-tools` |
 | Menu shows *Waiting for the tablet* | Check `adb devices`. If it shows *unauthorized*, accept the USB debugging prompt on the tablet. |
 | Tablet mic shows *busy or blocked* | Android 11+ only lets a foreground service record when it was started while the app was visible. Unlock the tablet and open the app once, or choose **Reconnect Tablet**. |
-| Tablet plays nothing | Make sure the Mac app's output is BlackHole 16ch, not the system default. Check the speaker meter in the menu. |
-| Mac apps hear nothing from the tablet | Choose BlackHole 2ch as the app's input and watch the *Mic* meter in the menu. |
-| "Input device runs at 44100 Hz" | Set both BlackHole devices to 48000 Hz in Audio MIDI Setup. |
+| Menu says *Tablet Audio driver is not installed* | Run `driver/build.sh` and `driver/install.sh`. |
+| Tablet plays nothing | Make sure the Mac app's output is Tablet Audio. Check the speaker meter in the menu. |
+| Mac apps hear nothing from the tablet | Choose Tablet Audio as the app's input and watch the *Mic* meter in the menu. |
 | "port 47123 is busy" | Another copy of the helper is running. Quit it. |
-| Silence from BlackHole 16ch | Grant microphone access in System Settings > Privacy & Security > Microphone. |
+| Tablet hears silence from the Mac | Grant microphone access in System Settings > Privacy & Security > Microphone. |
 
 Logs: `~/Library/Logs/UsbAudioBridge/helper.log` (Mac) and `adb logcat -s UsbAudioBridge` (tablet).
 
