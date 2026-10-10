@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.usb.UsbAccessory
+import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
+import com.floweredao.usbaudiobridge.audio.AoaLink
 import com.floweredao.usbaudiobridge.audio.BridgeState
 import com.floweredao.usbaudiobridge.ui.BridgeScreen
 import com.floweredao.usbaudiobridge.ui.BridgeTheme
@@ -50,6 +53,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        openAccessory(intent)
         startBridge()
     }
 
@@ -60,8 +64,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // The Mac helper re-launches us with `am start` whenever the tablet is plugged in.
+        // The Mac helper re-launches us with `am start` whenever the tablet is plugged in,
+        // and Android launches us with USB_ACCESSORY_ATTACHED when the Mac switches the tablet to AOA.
+        openAccessory(intent)
         startBridge()
+    }
+
+    private fun openAccessory(intent: Intent?) {
+        val accessory = if (Build.VERSION.SDK_INT >= 33) {
+            intent?.getParcelableExtra(UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra(UsbManager.EXTRA_ACCESSORY)
+        }
+        if (accessory != null) AoaLink.open(this, accessory)
     }
 
     private fun startBridge() {

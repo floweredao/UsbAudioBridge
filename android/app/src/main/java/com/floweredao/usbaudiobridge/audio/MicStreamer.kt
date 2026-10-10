@@ -40,6 +40,7 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
                 continue
             }
             setLink(LinkState.Waiting)
+            AoaLink.open(context)
             // Open the mic before the socket so a blocked mic never flaps the Mac connection.
             val record = try {
                 createRecord(settings.echoCancel)
@@ -66,16 +67,19 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
     }
 
     private fun session(record: AudioRecord, echoCancel: Boolean) {
-        val opened = try {
+        val aoa = AoaLink.current
+        val opened = if (aoa != null) emptyList() else try {
             Protocol.openLanes(Protocol.MIC_PORT).also { lanes = it }
         } catch (e: Exception) {
             record.release()
             throw e
         }
-        val controlLane = opened[0]
-        val audioLanes = opened.drop(1)
+        // Over AOA the speaker streamer owns the single reader and answers PINGs for both directions.
+        val pingWriter = aoa?.writer ?: opened[0].writer
+        val audioWriters = aoa?.let { listOf(it.writer) } ?: opened.drop(1).map { it.writer }
         val effects = if (echoCancel) attachEffects(record.audioSessionId) else emptyList()
-        val control = thread(name = "uab-mic-ctl", isDaemon = true) {
+        val control = if (aoa != null) null else thread(name = "uab-mic-ctl", isDaemon = true) {
+            val controlLane = opened[0]
             try {
                 while (true) {
                     controlLane.reader.next()
@@ -90,7 +94,7 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
             if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) throw IOException("mic is busy or blocked")
             BridgeState.updateStatus { it.copy(micBlocked = false) }
             setLink(LinkState.Connected)
-            Log.i(TAG, "mic connected (echoCancel=$echoCancel)")
+            Log.i(TAG, "mic connected over ${if (aoa != null) "accessory" else "adb"} (echoCancel=$echoCancel)")
             val frame = ByteArray(FRAME_SAMPLES * 2)
             var lastPing = 0L
             var lastUi = 0L
@@ -100,14 +104,20 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
             while (running) {
                 val current = BridgeState.settings.value
                 if (!current.micEnabled || current.echoCancel != echoCancel) break
+                if (aoa?.closed == true || (aoa == null && AoaLink.current != null)) break
                 val n = record.read(frame, 0, frame.size)
                 if (n <= 0) {
                     BridgeState.updateStatus { it.copy(micBlocked = true) }
                     throw IOException("AudioRecord.read returned $n")
                 }
                 applyGain(frame, n, current.micGain)
-                audioLanes[lane].writer.write(Protocol.TYPE_AUDIO, frame, n)
-                lane = (lane + 1) % audioLanes.size
+                try {
+                    audioWriters[lane].write(Protocol.TYPE_AUDIO, frame, n)
+                } catch (e: IOException) {
+                    aoa?.close()
+                    throw e
+                }
+                lane = (lane + 1) % audioWriters.size
 
                 val db = Protocol.levelDb(frame, n)
                 peakDb = maxOf(peakDb, db)
@@ -118,8 +128,10 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
                     lastUi = now
                 }
                 if (now - lastPing >= 1000) {
-                    controlLane.writer.ping()
+                    pingWriter.ping()
                     lastPing = now
+                    // Picks up an accessory that was permitted while this adb session was running.
+                    if (aoa == null) AoaLink.open(context)
                 }
                 if (now - lastLog >= 1000) {
                     Log.i(TAG, "mic level=%.1f dBFS".format(db))
@@ -131,7 +143,7 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
             record.release()
             effects.forEach { it.release() }
             opened.forEach { it.close() }
-            control.join(500)
+            control?.join(500)
         }
     }
 

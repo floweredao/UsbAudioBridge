@@ -16,6 +16,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.floweredao.usbaudiobridge.audio.AoaLink
 import com.floweredao.usbaudiobridge.audio.BridgeState
 import com.floweredao.usbaudiobridge.audio.LinkState
 import com.floweredao.usbaudiobridge.audio.MicStreamer
@@ -71,7 +72,7 @@ class BridgeService : Service() {
         } else 0
         ServiceCompat.startForeground(this, NOTIF_ID, buildNotification(status.mic, status.speaker), type)
         if (mic == null) mic = MicStreamer(applicationContext).also { it.start() }
-        if (speaker == null) speaker = SpeakerStreamer().also { it.start() }
+        if (speaker == null) speaker = SpeakerStreamer(applicationContext).also { it.start() }
         BridgeState.updateStatus { it.copy(serviceRunning = true) }
         return START_STICKY
     }
@@ -79,6 +80,7 @@ class BridgeService : Service() {
     override fun onDestroy() {
         mic?.shutdown()
         speaker?.shutdown()
+        AoaLink.current?.close()
         mic = null
         speaker = null
         scope.cancel()

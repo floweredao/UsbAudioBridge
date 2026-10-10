@@ -138,7 +138,11 @@ class FrameReader(stream: InputStream) {
     }
 
     /** Bytes already received but not yet consumed: the network side of the playback backlog. */
-    fun backlog(): Int = input.available()
+    fun backlog(): Int = try {
+        input.available()
+    } catch (_: IOException) {
+        0 // accessory file descriptors may not support FIONREAD
+    }
 }
 
 /** Handles PING/PONG on any socket; returns true when the frame was a control frame. */

@@ -1,15 +1,17 @@
 package com.floweredao.usbaudiobridge.audio
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import java.io.IOException
 import kotlin.concurrent.thread
 
 /** Receives s16 stereo frames from the Mac and plays them with a small, bounded buffer. */
-class SpeakerStreamer : Thread("uab-speaker") {
+class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
     @Volatile private var running = true
     @Volatile private var lanes: List<Lane> = emptyList()
 
@@ -22,7 +24,9 @@ class SpeakerStreamer : Thread("uab-speaker") {
     override fun run() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         while (running) {
-            if (!BridgeState.settings.value.speakerEnabled) {
+            AoaLink.open(context)
+            // Over AOA this thread is the only reader, so it keeps reading even with the speaker off.
+            if (!BridgeState.settings.value.speakerEnabled && AoaLink.current == null) {
                 setLink(LinkState.Off)
                 pause(250)
                 continue
@@ -45,11 +49,13 @@ class SpeakerStreamer : Thread("uab-speaker") {
     }
 
     private fun session() {
-        val opened = Protocol.openLanes(Protocol.SPEAKER_PORT)
+        val aoa = AoaLink.current
+        val opened = if (aoa != null) emptyList() else Protocol.openLanes(Protocol.SPEAKER_PORT)
         lanes = opened
-        val controlLane = opened[0]
-        val audioLanes = opened.drop(1)
-        val control = thread(name = "uab-speaker-ctl", isDaemon = true) {
+        val pingWriter = aoa?.writer ?: opened[0].writer
+        val audioLanes = aoa?.let { listOf(it.reader to it.writer) } ?: opened.drop(1).map { it.reader to it.writer }
+        val control = if (aoa != null) null else thread(name = "uab-speaker-ctl", isDaemon = true) {
+            val controlLane = opened[0]
             try {
                 while (true) {
                     controlLane.reader.next()
@@ -93,7 +99,7 @@ class SpeakerStreamer : Thread("uab-speaker") {
             var skipMs = 0f
             var lastArrival = 0L
             var maxGapMs = 0L
-            Log.i(TAG, "speaker connected (capacity ${track.bufferCapacityInFrames} frames, using ${track.bufferSizeInFrames})")
+            Log.i(TAG, "speaker connected over ${if (aoa != null) "accessory" else "adb"} (capacity ${track.bufferCapacityInFrames} frames, using ${track.bufferSizeInFrames})")
             var written = 0L
             var volume = -1f
             var lastPing = 0L
@@ -104,15 +110,22 @@ class SpeakerStreamer : Thread("uab-speaker") {
             var lane = 0
             while (running) {
                 val settings = BridgeState.settings.value
-                if (!settings.speakerEnabled) break
+                if (aoa == null && (!settings.speakerEnabled || AoaLink.current != null)) break
+                if (aoa?.closed == true) break
                 if (settings.speakerVolume != volume) {
                     volume = settings.speakerVolume
                     track.setVolume(volume)
                 }
                 // The Mac sends AUDIO round-robin over the audio lanes; reading in the same rotation keeps order.
-                val reader = audioLanes[lane].reader
-                reader.next()
-                if (handleControl(reader, audioLanes[lane].writer) || reader.type != Protocol.TYPE_AUDIO) continue
+                val (reader, writer) = audioLanes[lane]
+                try {
+                    reader.next()
+                } catch (e: IOException) {
+                    aoa?.close()
+                    throw e
+                }
+                if (handleControl(reader, writer) || reader.type != Protocol.TYPE_AUDIO) continue
+                if (!settings.speakerEnabled) continue
                 lane = (lane + 1) % audioLanes.size
                 val arrival = SystemClock.elapsedRealtime()
                 if (lastArrival != 0L) maxGapMs = maxOf(maxGapMs, arrival - lastArrival)
@@ -120,7 +133,7 @@ class SpeakerStreamer : Thread("uab-speaker") {
 
                 val played = track.playbackHeadPosition.toLong() and 0xffffffffL
                 val queuedMs = (written - played).coerceAtLeast(0) * 1000f / Protocol.SAMPLE_RATE
-                val backlogMs = audioLanes.sumOf { it.reader.backlog() }.toFloat() / BYTES_PER_MS
+                val backlogMs = audioLanes.sumOf { it.first.backlog() }.toFloat() / BYTES_PER_MS
                 val bufferMs = queuedMs + backlogMs
                 if (track.underrunCount != underruns) {
                     underruns = track.underrunCount
@@ -166,8 +179,9 @@ class SpeakerStreamer : Thread("uab-speaker") {
                     lastUi = now
                 }
                 if (now - lastPing >= 1000) {
-                    controlLane.writer.ping()
+                    pingWriter.ping()
                     lastPing = now
+                    if (aoa == null) AoaLink.open(context)
                 }
                 if (now - lastLog >= 1000) {
                     Log.i(TAG, "speaker level=%.1f dBFS buffer=%.0f ms target=%d ms underruns=%d dropped=%d maxGap=%d ms rtt=%s".format(
@@ -180,7 +194,7 @@ class SpeakerStreamer : Thread("uab-speaker") {
             runCatching { track.pause(); track.flush(); track.stop() }
             track.release()
             opened.forEach { it.close() }
-            control.join(500)
+            control?.join(500)
         }
     }
 
