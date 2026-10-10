@@ -61,10 +61,12 @@ The first launch asks for **microphone access**. Allow it, because macOS treats 
 
 ## Latency
 
-- The tablet keeps a small playback buffer, starting at 10 ms and growing only after a real underrun, capped at 40 ms.
+- Each direction uses five sockets: one for pings and four that carry audio frames in turn. adb lets only one unacknowledged packet travel per socket, so a single socket delivers audio in bunches; four keep packets flowing.
+- The tablet keeps a small playback buffer that starts at 10 ms, grows 5 ms after a real underrun (up to 40 ms), and shrinks 5 ms after every 5 s without one.
 - The Mac keeps a 15 ms mic buffer.
 - Both sides drop any surplus that persisted for a full second, so the delay does not creep up over time.
-- Audio moves in 5 ms frames, and the Mac uses 256-frame device buffers.
+- Audio moves in 5 ms frames, and the helper uses 128-frame device buffers.
+- The tablet microphone delivers audio in 20 ms blocks on this hardware (no fast capture path), which sets a floor on the mic side.
 
 `--loop-test` measures the whole chain. It plays beeps into BlackHole 16ch, the tablet speaker plays them, the tablet mic hears them, and the helper times their arrival in BlackHole 2ch:
 
