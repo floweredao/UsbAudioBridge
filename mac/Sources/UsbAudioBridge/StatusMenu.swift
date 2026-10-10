@@ -70,6 +70,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if let rtt = s.rttMs, connected {
             menu.addItem(info(String(format: "Latency  round trip %.1f ms · mic buffer %.0f ms", rtt, s.micBufferMs)))
         }
+        menu.addItem(info("Echo cancel  \(s.echoCancelling ? "on" : "off") (\(EchoGate.mode))"))
 
         menu.addItem(.separator())
         menu.addItem(toggle("Tablet Microphone", bridge.micEnabled, #selector(toggleMic)))

@@ -12,6 +12,8 @@ final class Bridge {
         var micBufferMs: Double = 0
         var audioError: String?
         var micMaxGapMs: Double = 0
+        var echoCancelling = false
+        var echoMicrosPerFrame: Double = 0
     }
 
     static let deviceName = "Tablet Audio"  // Mac apps play to and record from this
@@ -20,6 +22,8 @@ final class Bridge {
     static let portUID = "UsbAudioBridge.TabletAudio.BridgePort"
 
     private let lock = NSLock()
+    private let echo = EchoCanceller()
+    private var echoApply = false
     private var micConn: LaneGroup?
     private var speakerConn: LaneGroup?
     private var _stats = Stats()
@@ -63,6 +67,7 @@ final class Bridge {
         s.micConnected = micConn != nil
         s.speakerConnected = speakerConn != nil
         s.micBufferMs = Double(micRing.available) / 48
+        s.echoCancelling = echoApply
         return s
     }
 
@@ -82,16 +87,26 @@ final class Bridge {
                 self.current(\.speakerConn)?.control.send(Wire.ping, bytes: bytes)
             }
         }
+        startThread("echo-gate") { [unowned self] in
+            while true {
+                let apply = EchoGate.shouldApply(tabletAudio: AudioDevices.find(uid: Self.deviceUID))
+                if apply != self.echoApply {
+                    self.echoApply = apply
+                    Log.info("echo cancellation \(apply ? "on" : "off") (mode \(EchoGate.mode))")
+                }
+                Thread.sleep(forTimeInterval: 1)
+            }
+        }
         startThread("stats-log") { [unowned self] in
             while true {
                 Thread.sleep(forTimeInterval: 5)
                 let s = self.stats
                 guard s.micConnected || s.speakerConnected else { continue }
                 self.lock.lock(); self._stats.micMaxGapMs = 0; self.lock.unlock()
-                Log.info(String(format: "stats mic=%@ level=%.1fdB buf=%.0fms maxGap=%.0fms speaker=%@ level=%.1fdB rtt=%@",
+                Log.info(String(format: "stats mic=%@ level=%.1fdB buf=%.0fms maxGap=%.0fms speaker=%@ level=%.1fdB rtt=%@ aec=%@ aecCost=%.0fus",
                                 s.micConnected ? "on" : "off", s.micLevelDb, s.micBufferMs, s.micMaxGapMs,
                                 s.speakerConnected ? "on" : "off", s.speakerLevelDb,
-                                s.rttMs.map { String(format: "%.1fms", $0) } ?? "-"))
+                                s.rttMs.map { String(format: "%.1fms", $0) } ?? "-", s.echoCancelling ? "on" : "off", s.echoMicrosPerFrame))
             }
         }
     }
@@ -121,6 +136,7 @@ final class Bridge {
         lock.lock(); let old = micConn; micConn = conn; lock.unlock()
         old?.close()
         micRing.clear()
+        echo.reset()
     }
 
     private func swapSpeaker(_ conn: LaneGroup?) {
@@ -173,10 +189,18 @@ final class Bridge {
                     lastArrival = arrival
                     let n = frame.length / 2
                     guard keepAudio else { break }
-                    buffer.withUnsafeBytes { raw in
+                    buffer.withUnsafeMutableBytes { raw in
+                        let pcm = raw.baseAddress!.assumingMemoryBound(to: Int16.self)
+                        if self.current(\.speakerConn) != nil {
+                            let t0 = DispatchTime.now().uptimeNanoseconds
+                            self.echo.process(pcm, count: n, apply: self.echoApply)
+                            let us = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1000
+                            self.lock.lock()
+                            self._stats.echoMicrosPerFrame = self._stats.echoMicrosPerFrame * 0.95 + us * 0.05
+                            self.lock.unlock()
+                        }
                         for i in 0..<n {
-                            let v = Int16(littleEndian: raw.loadUnaligned(fromByteOffset: i * 2, as: Int16.self))
-                            samples[i] = Float(v) / 32768
+                            samples[i] = Float(Int16(littleEndian: pcm[i])) / 32768
                         }
                     }
                     self.micRing.write(samples, n)
@@ -313,6 +337,7 @@ final class Bridge {
             let audioLanes = group.audio
             while speakerRing.available >= chunkFrames * 2 {
                 _ = speakerRing.read(into: floats, chunkFrames * 2)
+                echo.pushReference(floats, frames: chunkFrames)
                 bytes.withUnsafeMutableBytes { raw in
                     for i in 0..<(chunkFrames * 2) {
                         let v = Int16(max(-32768, min(32767, (floats[i] * 32767).rounded())))

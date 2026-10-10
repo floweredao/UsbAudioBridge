@@ -4,10 +4,15 @@ import AVFoundation
 signal(SIGPIPE, SIG_IGN)
 let arguments = CommandLine.arguments
 
-if let i = arguments.firstIndex(of: "--loop-test") {
+if arguments.contains("--aec-selftest") {
+    print(EchoSelfTest.run())
+    exit(0)
+}
+
+if let i = arguments.firstIndex(where: { $0 == "--loop-test" || $0 == "--echo-test" }) {
     // Runs from inside the app bundle so it shares the app's microphone permission.
     let seconds = arguments.count > i + 1 ? Double(arguments[i + 1]) ?? 8 : 8
-    let report = LoopTest.run(seconds: seconds)
+    let report = arguments[i] == "--echo-test" ? EchoTest.run(seconds: seconds) : LoopTest.run(seconds: seconds)
     let path = arguments.firstIndex(of: "--out").map { arguments[$0 + 1] }
     if let path { try? report.write(toFile: path, atomically: true, encoding: .utf8) }
     print(report)
