@@ -7,7 +7,10 @@ Mac apps ──► Tablet Audio (output) ──► helper ──USB (adb reverse
 Mac apps ◄── Tablet Audio (input)  ◄── helper ◄──USB (adb reverse, TCP 47123)─── tablet microphone
 ```
 
-Tools like AudioRelay send audio over UDP, which `adb` cannot forward. This project streams 48 kHz 16-bit PCM over TCP instead, so the existing USB debugging connection carries it.
+Tools like AudioRelay send audio over UDP, which `adb` cannot forward. This project streams 48 kHz 16-bit PCM over the USB cable in one of two ways:
+
+- **USB accessory (AOA, preferred).** The helper asks the tablet to switch to Android Open Accessory mode and moves audio over raw USB bulk pipes. adb (USB debugging) stays available in this mode.
+- **adb (fallback).** TCP over `adb reverse`, used when the tablet cannot or may not use accessory mode.
 
 | Dark | Light |
 | --- | --- |
@@ -62,10 +65,22 @@ The first launch asks for **microphone access**. Allow it, because macOS treats 
    - **Reconnect Tablet**
    - **Open at Login**
    - **Show Log**
-4. On the tablet you can toggle the mic and speaker, set mic gain and speaker volume, turn on the tablet's own echo cancellation, and see the round-trip time and playback delay. The UI follows the system's light or dark theme and adapts to landscape and portrait.
-5. Tap **Allow** on the tablet's *Keep running with the screen off* banner so battery optimization never pauses the bridge.
+4. The first time the helper switches the tablet to accessory mode, Android asks *Allow USB Audio Bridge to access USB Audio Bridge?*. Tick **Always open USB Audio Bridge when USB Audio Bridge is connected** and tap **OK**; after that the switch is silent. The helper only asks while the tablet is unlocked (so this prompt can appear) or once that default is set, and waits 10 minutes after a switch that did not link, so a locked tablet stays on adb instead of flapping.
+5. On the tablet you can toggle the mic and speaker, set mic gain and speaker volume, turn on the tablet's own echo cancellation, and see the round-trip time and playback delay. The UI follows the system's light or dark theme and adapts to landscape and portrait.
+6. Tap **Allow** on the tablet's *Keep running with the screen off* banner so battery optimization never pauses the bridge.
 
 ## Latency
+
+Loop test (Mac → tablet speaker → air → tablet mic → Mac), median of 10 beeps, measured back to back on the same day:
+
+| Path | Tablet echo cancellation off | on |
+| --- | --- | --- |
+| USB accessory (AOA) | 84.5 / 88.8 ms | 148 ms |
+| adb | 142.8 / 150.6 ms | 203.5 / 209.5 ms |
+
+Over AOA every beep arrives with the same delay (round trip about 1.3 ms, no adb stalls), so the tablet playback buffer settles at its 10 ms floor. The tablet's own echo cancellation (voice-call capture path) adds about 60 ms; turn it off when the Mac app cancels echo itself.
+
+On the adb path:
 
 - Each direction uses five sockets: one for pings and four that carry audio frames in turn. adb lets only one unacknowledged packet travel per socket, so a single socket delivers audio in bunches; four keep packets flowing.
 - The tablet keeps a small playback buffer that starts at 10 ms, grows 5 ms after a real underrun (up to 40 ms), and shrinks 5 ms after every 5 s without one.
@@ -91,10 +106,12 @@ open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp
 | Tablet plays nothing | Make sure the Mac app's output is Tablet Audio. Check the speaker meter in the menu. |
 | Mac apps hear nothing from the tablet | Choose Tablet Audio as the app's input and watch the *Mic* meter in the menu. |
 | "port 47123 is busy" | Another copy of the helper is running. Quit it. |
+| Want adb only | `defaults write com.floweredao.usbaudiobridge.mac aoa -bool false`, restart the helper, and replug the tablet. |
+| Tablet stays on adb (menu log shows no `aoa: tablet linked`) | Unlock the tablet once so Android can show the accessory prompt, and tick *Always open*. |
 | Tablet hears silence from the Mac | Grant microphone access in System Settings > Privacy & Security > Microphone. |
 
 Logs: `~/Library/Logs/UsbAudioBridge/helper.log` (Mac) and `adb logcat -s UsbAudioBridge` (tablet).
 
 ## Protocol
 
-Every message is `[type u8][length u32 big-endian][payload]`. The types are AUDIO (1), PING (2), PONG (3), and HELLO (4). The Mac sends HELLO on accept and answers each PING with a PONG that echoes the payload. Mic audio is s16le mono and speaker audio is s16le stereo, both at 48 kHz.
+Every message is `[type u8][length u32 big-endian][payload]`. Over USB accessory one bulk pipe per direction carries everything: Mac → tablet speaker AUDIO plus PING/PONG, tablet → Mac mic AUDIO plus PING/PONG. The accessory identifies itself as manufacturer `floweredao`, model `UsbAudioBridge`. The types are AUDIO (1), PING (2), PONG (3), and HELLO (4). The Mac sends HELLO on accept and answers each PING with a PONG that echoes the payload. Mic audio is s16le mono and speaker audio is s16le stereo, both at 48 kHz.
