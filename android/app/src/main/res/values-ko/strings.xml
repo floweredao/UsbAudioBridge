@@ -23,14 +23,14 @@
     <string name="speaker_title">스피커</string>
     <string name="speaker_caption">맥 → 태블릿</string>
     <string name="speaker_volume">볼륨</string>
-    <string name="speaker_hint">맥이 BlackHole 16ch로 보내는 소리를 재생해요.</string>
+    <string name="speaker_hint">맥이 Tablet Audio로 보내는 소리를 재생해요.</string>
     <string name="state_on">전송 중</string>
     <string name="state_waiting">대기</string>
     <string name="state_off">꺼짐</string>
     <string name="battery_title">화면이 꺼져도 계속 동작</string>
     <string name="battery_body">배터리 최적화에서 이 앱을 빼면 브리지가 멈추지 않아요.</string>
     <string name="battery_action">허용</string>
-    <string name="footer_hint">맥에서 입력은 BlackHole 2ch, 출력은 BlackHole 16ch로 고르세요. USB 연결은 맥 도우미가 자동으로 잡아요.</string>
+    <string name="footer_hint">맥에서 입력과 출력 모두 Tablet Audio로 고르세요. USB 연결은 맥 도우미가 자동으로 잡아요.</string>
     <string name="notif_channel">오디오 브리지</string>
     <string name="notif_connected">마이크: %1$s · 스피커: %2$s</string>
     <string name="notif_waiting">USB로 맥을 기다리는 중…</string>
