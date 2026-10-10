@@ -27,6 +27,14 @@ object Protocol {
     const val TYPE_PING = 2   // payload: 8-byte sender clock; the peer echoes it back as PONG
     const val TYPE_PONG = 3
     const val TYPE_HELLO = 4  // first frame sent by the Mac on every accepted connection
+    const val TYPE_JOIN = 5   // tablet -> Mac after HELLO: [session u32][lane u8][lane count u8]
+
+    /**
+     * Audio sockets per stream. adb keeps one unacknowledged packet per socket, so one socket delivers
+     * audio in bunches of one USB round trip (20-40 ms on this tablet); several sockets keep several
+     * packets in flight. Lane 0 carries only PING/PONG, AUDIO goes round-robin over lanes 1..AUDIO_LANES.
+     */
+    const val AUDIO_LANES = 4
 
     private const val MAX_PAYLOAD = 1 shl 16
 
@@ -37,6 +45,26 @@ object Protocol {
         // The Mac pings every second, so a silent socket for 3 s means the link is gone.
         socket.soTimeout = 3000
         return socket
+    }
+
+    /** Opens the control lane plus [AUDIO_LANES] audio lanes to [port] as one session. */
+    fun openLanes(port: Int): List<Lane> {
+        val session = kotlin.random.Random.nextInt()
+        val count = 1 + AUDIO_LANES
+        val lanes = mutableListOf<Lane>()
+        try {
+            for (i in 0 until count) {
+                val lane = Lane(connect(port))
+                lanes += lane
+                readHello(lane.reader)
+                val join = ByteBuffer.allocate(6).putInt(session).put(i.toByte()).put(count.toByte()).array()
+                lane.writer.write(TYPE_JOIN, join)
+            }
+        } catch (e: Exception) {
+            lanes.forEach { it.close() }
+            throw e
+        }
+        return lanes
     }
 
     fun longBytes(value: Long): ByteArray = ByteBuffer.allocate(8).putLong(value).array()
@@ -65,6 +93,15 @@ object Protocol {
 
     internal fun checkLength(length: Int) {
         if (length < 0 || length > MAX_PAYLOAD) throw IOException("bad frame length $length")
+    }
+}
+
+class Lane(val socket: Socket) {
+    val reader = FrameReader(socket.getInputStream())
+    val writer = FrameWriter(socket.getOutputStream())
+
+    fun close() {
+        runCatching { socket.close() }
     }
 }
 

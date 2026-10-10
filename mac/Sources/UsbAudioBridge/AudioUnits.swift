@@ -69,18 +69,20 @@ private func setCommon(_ unit: AudioUnit, device: AudioDeviceID, bufferFrames: U
 final class OutputUnit {
     typealias Fill = (_ out: UnsafeMutablePointer<Float>, _ frames: Int, _ hostTime: UInt64) -> Void
     let channels: Int
+    let bufferFrames: UInt32
     private let fill: Fill
     private var unit: AudioUnit?
 
-    init(channels: Int = 2, fill: @escaping Fill) {
+    init(channels: Int = 2, bufferFrames: UInt32 = 256, fill: @escaping Fill) {
         self.channels = channels
+        self.bufferFrames = bufferFrames
         self.fill = fill
     }
 
     func start(device: AudioDeviceID) throws {
         let unit = try makeHAL()
         self.unit = unit
-        try setCommon(unit, device: device, bufferFrames: 256)
+        try setCommon(unit, device: device, bufferFrames: bufferFrames)
         var format = floatFormat(rate: Wire.sampleRate, channels: UInt32(channels))
         try check(AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0,
                                        &format, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)), "output format")
@@ -113,13 +115,15 @@ final class OutputUnit {
 final class InputUnit {
     typealias Deliver = (_ samples: UnsafePointer<Float>, _ frames: Int, _ hostTime: UInt64) -> Void
     let channels: Int
+    let bufferFrames: UInt32
     private let deliver: Deliver
     private var unit: AudioUnit?
     private let scratch: UnsafeMutablePointer<Float>
     private let scratchFrames = 8192
 
-    init(channels: Int = 2, deliver: @escaping Deliver) {
+    init(channels: Int = 2, bufferFrames: UInt32 = 256, deliver: @escaping Deliver) {
         self.channels = channels
+        self.bufferFrames = bufferFrames
         self.deliver = deliver
         scratch = .allocate(capacity: scratchFrames * channels)
     }
@@ -133,7 +137,7 @@ final class InputUnit {
         var zero: UInt32 = 0
         try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &one, 4), "enable input")
         try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &zero, 4), "disable output")
-        try setCommon(unit, device: device, bufferFrames: 256)
+        try setCommon(unit, device: device, bufferFrames: bufferFrames)
 
         var hardware = AudioStreamBasicDescription()
         var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)

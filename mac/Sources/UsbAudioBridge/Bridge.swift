@@ -18,8 +18,8 @@ final class Bridge {
     static let speakerDeviceName = "BlackHole 16ch"  // Mac apps play to this
 
     private let lock = NSLock()
-    private var micConn: Connection?
-    private var speakerConn: Connection?
+    private var micConn: LaneGroup?
+    private var speakerConn: LaneGroup?
     private var _stats = Stats()
 
     var micEnabled: Bool {
@@ -51,8 +51,9 @@ final class Bridge {
     private let speakerRing = FloatRing(capacity: 9600)
     private let speakerSignal = DispatchSemaphore(value: 0)
 
-    private lazy var output = OutputUnit(channels: 2) { [unowned self] out, frames, _ in self.renderMic(out, frames) }
-    private lazy var input = InputUnit(channels: 2) { [unowned self] samples, frames, _ in self.captureSpeaker(samples, frames) }
+    // 128-frame (2.7 ms) device I/O on both BlackHole sides; the loop test keeps 256 to stay comparable.
+    private lazy var output = OutputUnit(channels: 2, bufferFrames: 128) { [unowned self] out, frames, _ in self.renderMic(out, frames) }
+    private lazy var input = InputUnit(channels: 2, bufferFrames: 128) { [unowned self] samples, frames, _ in self.captureSpeaker(samples, frames) }
 
     var stats: Stats {
         lock.lock(); defer { lock.unlock() }
@@ -64,8 +65,10 @@ final class Bridge {
     }
 
     func start() throws {
-        try Server(port: Wire.micPort) { [unowned self] conn in self.acceptMic(conn) }.start()
-        try Server(port: Wire.speakerPort) { [unowned self] conn in self.acceptSpeaker(conn) }.start()
+        let micJoiner = LaneJoiner { [unowned self] group, first in self.acceptMic(group, first) }
+        let speakerJoiner = LaneJoiner { [unowned self] group, _ in self.acceptSpeaker(group) }
+        try Server(port: Wire.micPort) { conn in micJoiner.accept(conn) }.start()
+        try Server(port: Wire.speakerPort) { conn in speakerJoiner.accept(conn) }.start()
         startAudio()
         startThread("speaker-send") { [unowned self] in self.sendLoop() }
         startThread("pinger") { [unowned self] in
@@ -73,8 +76,8 @@ final class Bridge {
                 Thread.sleep(forTimeInterval: 1)
                 var now = DispatchTime.now().uptimeNanoseconds.bigEndian
                 let bytes = withUnsafeBytes(of: &now) { Array($0) }
-                self.current(\.micConn)?.send(Wire.ping, bytes: bytes)
-                self.current(\.speakerConn)?.send(Wire.ping, bytes: bytes)
+                self.current(\.micConn)?.control.send(Wire.ping, bytes: bytes)
+                self.current(\.speakerConn)?.control.send(Wire.ping, bytes: bytes)
             }
         }
         startThread("stats-log") { [unowned self] in
@@ -106,28 +109,28 @@ final class Bridge {
 
     // MARK: connections
 
-    private func current(_ key: ReferenceWritableKeyPath<Bridge, Connection?>) -> Connection? {
+    private func current(_ key: ReferenceWritableKeyPath<Bridge, LaneGroup?>) -> LaneGroup? {
         lock.lock(); defer { lock.unlock() }
         return self[keyPath: key]
     }
 
-    private func swapMic(_ conn: Connection?) {
+    private func swapMic(_ conn: LaneGroup?) {
         lock.lock(); let old = micConn; micConn = conn; lock.unlock()
         old?.close()
         micRing.clear()
     }
 
-    private func swapSpeaker(_ conn: Connection?) {
+    private func swapSpeaker(_ conn: LaneGroup?) {
         lock.lock(); let old = speakerConn; speakerConn = conn; lock.unlock()
         old?.close()
         speakerRing.clear()
     }
 
-    private func acceptMic(_ conn: Connection) {
-        guard micEnabled else { conn.close(); return }
-        conn.send(Wire.hello, bytes: Wire.helloMagic)
-        swapMic(conn)
-        Log.info("tablet mic connected")
+    private func acceptMic(_ group: LaneGroup, _ first: (type: UInt8, payload: [UInt8])?) {
+        guard micEnabled else { group.close(); return }
+        swapMic(group)
+        Log.info("tablet mic connected (\(group.lanes.count) lanes)")
+        if group.lanes.count > 1 { watchControl(group, "mic-ctl") }
         startThread("mic-read") { [unowned self] in
             var buffer = [UInt8](repeating: 0, count: 8192)
             let samples = UnsafeMutablePointer<Float>.allocate(capacity: Wire.maxPayload / 2)
@@ -136,7 +139,21 @@ final class Bridge {
             var lastUi = DispatchTime.now().uptimeNanoseconds
             var lastArrival: UInt64 = 0
             var maxGap: UInt64 = 0
-            while let frame = conn.readFrame(into: &buffer) {
+            var pendingFirst = first
+            let audioLanes = Array(group.audio)
+            var lane = 0
+            while true {
+                let conn = audioLanes[lane]
+                let frame: (type: UInt8, length: Int)
+                if let p = pendingFirst {
+                    if buffer.count < p.payload.count { buffer = [UInt8](repeating: 0, count: p.payload.count) }
+                    buffer.replaceSubrange(0..<p.payload.count, with: p.payload)
+                    frame = (p.type, p.payload.count)
+                    pendingFirst = nil
+                } else {
+                    guard let f = conn.readFrame(into: &buffer) else { break }
+                    frame = f
+                }
                 switch frame.type {
                 case Wire.audio:
                     let arrival = DispatchTime.now().uptimeNanoseconds
@@ -150,6 +167,7 @@ final class Bridge {
                         }
                     }
                     self.micRing.write(samples, n)
+                    lane = (lane + 1) % audioLanes.count
                     peak = max(peak, levelDb(samples, n))
                     let now = DispatchTime.now().uptimeNanoseconds
                     if now - lastUi > 100_000_000 {
@@ -166,30 +184,43 @@ final class Bridge {
                 }
             }
             self.lock.lock()
-            let wasCurrent = self.micConn === conn
+            let wasCurrent = self.micConn === group
             if wasCurrent { self.micConn = nil; self._stats.micLevelDb = -90 }
             self.lock.unlock()
-            conn.close()
+            group.close()
             if wasCurrent { Log.info("tablet mic disconnected") }
         }
     }
 
-    private func acceptSpeaker(_ conn: Connection) {
-        guard speakerEnabled else { conn.close(); return }
-        conn.send(Wire.hello, bytes: Wire.helloMagic)
-        swapSpeaker(conn)
-        Log.info("tablet speaker connected")
-        startThread("speaker-read") { [unowned self] in
-            var buffer = [UInt8](repeating: 0, count: 256)
-            while let frame = conn.readFrame(into: &buffer) {
-                self.handleControl(frame.type, buffer, frame.length, conn)
+    private func acceptSpeaker(_ group: LaneGroup) {
+        guard speakerEnabled else { group.close(); return }
+        swapSpeaker(group)
+        Log.info("tablet speaker connected (\(group.lanes.count) lanes)")
+        // Every lane gets a reader so a dead socket anywhere tears the whole group down.
+        for (i, conn) in group.lanes.enumerated() {
+            startThread("speaker-read-\(i)") { [unowned self] in
+                var buffer = [UInt8](repeating: 0, count: 256)
+                while let frame = conn.readFrame(into: &buffer) {
+                    self.handleControl(frame.type, buffer, frame.length, conn)
+                }
+                self.lock.lock()
+                let wasCurrent = self.speakerConn === group
+                if wasCurrent { self.speakerConn = nil; self._stats.speakerLevelDb = -90 }
+                self.lock.unlock()
+                group.close()
+                if wasCurrent { Log.info("tablet speaker disconnected") }
             }
-            self.lock.lock()
-            let wasCurrent = self.speakerConn === conn
-            if wasCurrent { self.speakerConn = nil; self._stats.speakerLevelDb = -90 }
-            self.lock.unlock()
-            conn.close()
-            if wasCurrent { Log.info("tablet speaker disconnected") }
+        }
+    }
+
+    /// Reads PING/PONG on the control lane; closing the group on EOF also ends the audio reader.
+    private func watchControl(_ group: LaneGroup, _ name: String) {
+        startThread(name) { [unowned self] in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            while let frame = group.control.readFrame(into: &buffer) {
+                self.handleControl(frame.type, buffer, frame.length, group.control)
+            }
+            group.close()
         }
     }
 
@@ -252,12 +283,20 @@ final class Bridge {
         var bytes = [UInt8](repeating: 0, count: chunkFrames * 4)
         var peak: Float = -90
         var lastUi = DispatchTime.now().uptimeNanoseconds
+        var lastGroup: LaneGroup?
+        var lane = 0
         while true {
             _ = speakerSignal.wait(timeout: .now() + .milliseconds(100))
-            guard let conn = current(\.speakerConn) else {
+            guard let group = current(\.speakerConn) else {
                 speakerRing.clear()
                 continue
             }
+            if group !== lastGroup {
+                // The tablet reads audio lanes in rotation starting at the first one.
+                lastGroup = group
+                lane = 0
+            }
+            let audioLanes = group.audio
             while speakerRing.available >= chunkFrames * 2 {
                 _ = speakerRing.read(into: floats, chunkFrames * 2)
                 bytes.withUnsafeMutableBytes { raw in
@@ -266,7 +305,8 @@ final class Bridge {
                         raw.storeBytes(of: v.littleEndian, toByteOffset: i * 2, as: Int16.self)
                     }
                 }
-                if !conn.send(Wire.audio, bytes: bytes) { break }
+                if !audioLanes[audioLanes.startIndex + lane].send(Wire.audio, bytes: bytes) { break }
+                lane = (lane + 1) % audioLanes.count
                 peak = max(peak, levelDb(floats, chunkFrames * 2))
             }
             let now = DispatchTime.now().uptimeNanoseconds

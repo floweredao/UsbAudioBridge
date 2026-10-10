@@ -14,18 +14,17 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import java.io.IOException
-import java.net.Socket
 import kotlin.concurrent.thread
 import kotlin.math.roundToInt
 
 /** Captures the tablet microphone and streams 10 ms s16 mono frames to the Mac. */
 class MicStreamer(private val context: Context) : Thread("uab-mic") {
     @Volatile private var running = true
-    @Volatile private var socket: Socket? = null
+    @Volatile private var lanes: List<Lane> = emptyList()
 
     fun shutdown() {
         running = false
-        runCatching { socket?.close() }
+        lanes.forEach { it.close() }
         interrupt()
     }
 
@@ -55,8 +54,8 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
             } catch (e: Exception) {
                 if (running) Log.d(TAG, "mic link: ${e.javaClass.simpleName}: ${e.message}")
             } finally {
-                runCatching { socket?.close() }
-                socket = null
+                lanes.forEach { it.close() }
+                lanes = emptyList()
             }
             if (running) {
                 BridgeState.updateStatus { it.copy(micLevelDb = -90f) }
@@ -67,29 +66,23 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
     }
 
     private fun session(record: AudioRecord, echoCancel: Boolean) {
-        val sock = try {
-            Protocol.connect(Protocol.MIC_PORT).also { socket = it }
+        val opened = try {
+            Protocol.openLanes(Protocol.MIC_PORT).also { lanes = it }
         } catch (e: Exception) {
             record.release()
             throw e
         }
-        val reader = FrameReader(sock.getInputStream())
-        val writer = FrameWriter(sock.getOutputStream())
-        try {
-            Protocol.readHello(reader)
-        } catch (e: Exception) {
-            record.release()
-            throw e
-        }
+        val controlLane = opened[0]
+        val audioLanes = opened.drop(1)
         val effects = if (echoCancel) attachEffects(record.audioSessionId) else emptyList()
         val control = thread(name = "uab-mic-ctl", isDaemon = true) {
             try {
                 while (true) {
-                    reader.next()
-                    handleControl(reader, writer)
+                    controlLane.reader.next()
+                    handleControl(controlLane.reader, controlLane.writer)
                 }
             } catch (_: Exception) {
-                runCatching { sock.close() }
+                opened.forEach { it.close() }
             }
         }
         try {
@@ -103,6 +96,7 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
             var lastUi = 0L
             var lastLog = 0L
             var peakDb = -90f
+            var lane = 0
             while (running) {
                 val current = BridgeState.settings.value
                 if (!current.micEnabled || current.echoCancel != echoCancel) break
@@ -112,7 +106,8 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
                     throw IOException("AudioRecord.read returned $n")
                 }
                 applyGain(frame, n, current.micGain)
-                writer.write(Protocol.TYPE_AUDIO, frame, n)
+                audioLanes[lane].writer.write(Protocol.TYPE_AUDIO, frame, n)
+                lane = (lane + 1) % audioLanes.size
 
                 val db = Protocol.levelDb(frame, n)
                 peakDb = maxOf(peakDb, db)
@@ -123,7 +118,7 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
                     lastUi = now
                 }
                 if (now - lastPing >= 1000) {
-                    writer.ping()
+                    controlLane.writer.ping()
                     lastPing = now
                 }
                 if (now - lastLog >= 1000) {
@@ -135,7 +130,7 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
             runCatching { record.stop() }
             record.release()
             effects.forEach { it.release() }
-            runCatching { sock.close() }
+            opened.forEach { it.close() }
             control.join(500)
         }
     }

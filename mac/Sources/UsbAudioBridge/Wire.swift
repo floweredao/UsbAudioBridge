@@ -12,6 +12,7 @@ enum Wire {
     static let ping: UInt8 = 2
     static let pong: UInt8 = 3
     static let hello: UInt8 = 4
+    static let join: UInt8 = 5  // tablet -> Mac after HELLO: [session u32][lane u8][lane count u8]
     static let maxPayload = 1 << 16
     static let helloMagic: [UInt8] = Array("UAB1".utf8)
 }
@@ -90,6 +91,83 @@ final class Connection {
             offset += n
         }
         return true
+    }
+}
+
+/// One tablet stream carried over several TCP connections.
+///
+/// `adb` keeps only one unacknowledged packet in flight per socket, so a single socket delivers audio
+/// in 20-40 ms bunches (one bunch per USB round trip). Spreading frames round-robin over several sockets
+/// keeps several packets in flight. Lane 0 carries only PING/PONG; lanes 1... carry AUDIO in strict
+/// round-robin order, so the receiver restores the order by reading them in the same rotation.
+/// A legacy tablet app (no JOIN) is a group of one connection that carries everything.
+final class LaneGroup {
+    let lanes: [Connection]
+
+    init(_ lanes: [Connection]) {
+        self.lanes = lanes
+    }
+
+    var control: Connection { lanes[0] }
+    var audio: ArraySlice<Connection> { lanes.count == 1 ? lanes[...] : lanes[1...] }
+
+    func close() {
+        lanes.forEach { $0.close() }
+    }
+}
+
+/// Greets each accepted connection and groups the ones that announce the same JOIN session.
+final class LaneJoiner {
+    typealias OnGroup = (_ group: LaneGroup, _ firstFrame: (type: UInt8, payload: [UInt8])?) -> Void
+    private let lock = NSLock()
+    private var pending: [UInt32: [Int: Connection]] = [:]
+    private let onGroup: OnGroup
+
+    init(onGroup: @escaping OnGroup) {
+        self.onGroup = onGroup
+    }
+
+    func accept(_ conn: Connection) {
+        conn.send(Wire.hello, bytes: Wire.helloMagic)
+        let thread = Thread { [self] in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            guard let frame = conn.readFrame(into: &buffer) else {
+                conn.close()
+                return
+            }
+            guard frame.type == Wire.join, frame.length >= 6 else {
+                // Legacy app: the first frame is already audio or a ping; hand it over unprocessed.
+                onGroup(LaneGroup([conn]), (frame.type, Array(buffer[0..<frame.length])))
+                return
+            }
+            let session = buffer[0..<4].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            let lane = Int(buffer[4])
+            let count = Int(buffer[5])
+            guard count >= 2, count <= 16, lane < count else {
+                conn.close()
+                return
+            }
+            lock.lock()
+            var lanes = pending[session] ?? [:]
+            let replaced = lanes[lane]
+            lanes[lane] = conn
+            guard lanes.count == count else {
+                pending[session] = lanes
+                lock.unlock()
+                replaced?.close()
+                return
+            }
+            // A complete session supersedes any half-joined older one (its tablet side already gave up).
+            pending[session] = nil
+            let stale = pending.values.flatMap { $0.values }
+            pending.removeAll()
+            lock.unlock()
+            replaced?.close()
+            stale.forEach { $0.close() }
+            onGroup(LaneGroup((0..<count).map { lanes[$0]! }), nil)
+        }
+        thread.name = "join"
+        thread.start()
     }
 }
 

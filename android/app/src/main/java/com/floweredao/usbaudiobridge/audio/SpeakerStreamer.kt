@@ -6,16 +6,16 @@ import android.media.AudioTrack
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
-import java.net.Socket
+import kotlin.concurrent.thread
 
 /** Receives s16 stereo frames from the Mac and plays them with a small, bounded buffer. */
 class SpeakerStreamer : Thread("uab-speaker") {
     @Volatile private var running = true
-    @Volatile private var socket: Socket? = null
+    @Volatile private var lanes: List<Lane> = emptyList()
 
     fun shutdown() {
         running = false
-        runCatching { socket?.close() }
+        lanes.forEach { it.close() }
         interrupt()
     }
 
@@ -33,8 +33,8 @@ class SpeakerStreamer : Thread("uab-speaker") {
             } catch (e: Exception) {
                 if (running) Log.d(TAG, "speaker link: ${e.javaClass.simpleName}: ${e.message}")
             } finally {
-                runCatching { socket?.close() }
-                socket = null
+                lanes.forEach { it.close() }
+                lanes = emptyList()
             }
             if (running) {
                 BridgeState.updateStatus { it.copy(speakerLevelDb = -90f, playbackBufferMs = null) }
@@ -45,11 +45,20 @@ class SpeakerStreamer : Thread("uab-speaker") {
     }
 
     private fun session() {
-        val sock = Protocol.connect(Protocol.SPEAKER_PORT)
-        socket = sock
-        val reader = FrameReader(sock.getInputStream())
-        val writer = FrameWriter(sock.getOutputStream())
-        Protocol.readHello(reader)
+        val opened = Protocol.openLanes(Protocol.SPEAKER_PORT)
+        lanes = opened
+        val controlLane = opened[0]
+        val audioLanes = opened.drop(1)
+        val control = thread(name = "uab-speaker-ctl", isDaemon = true) {
+            try {
+                while (true) {
+                    controlLane.reader.next()
+                    handleControl(controlLane.reader, controlLane.writer)
+                }
+            } catch (_: Exception) {
+                opened.forEach { it.close() }
+            }
+        }
 
         val minBuf = AudioTrack.getMinBufferSize(Protocol.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         val track = AudioTrack.Builder()
@@ -78,6 +87,7 @@ class SpeakerStreamer : Thread("uab-speaker") {
             track.bufferSizeInFrames = minOf(track.bufferCapacityInFrames, targetMs * FRAMES_PER_MS)
             var underruns = track.underrunCount
             val startedAt = SystemClock.elapsedRealtime()
+            var lastAdjust = startedAt
             var windowStart = startedAt
             var windowMinMs = Float.MAX_VALUE
             var skipMs = 0f
@@ -91,6 +101,7 @@ class SpeakerStreamer : Thread("uab-speaker") {
             var lastLog = 0L
             var peakDb = -90f
             var dropped = 0
+            var lane = 0
             while (running) {
                 val settings = BridgeState.settings.value
                 if (!settings.speakerEnabled) break
@@ -98,15 +109,18 @@ class SpeakerStreamer : Thread("uab-speaker") {
                     volume = settings.speakerVolume
                     track.setVolume(volume)
                 }
+                // The Mac sends AUDIO round-robin over the audio lanes; reading in the same rotation keeps order.
+                val reader = audioLanes[lane].reader
                 reader.next()
-                if (handleControl(reader, writer) || reader.type != Protocol.TYPE_AUDIO) continue
+                if (handleControl(reader, audioLanes[lane].writer) || reader.type != Protocol.TYPE_AUDIO) continue
+                lane = (lane + 1) % audioLanes.size
                 val arrival = SystemClock.elapsedRealtime()
                 if (lastArrival != 0L) maxGapMs = maxOf(maxGapMs, arrival - lastArrival)
                 lastArrival = arrival
 
                 val played = track.playbackHeadPosition.toLong() and 0xffffffffL
                 val queuedMs = (written - played).coerceAtLeast(0) * 1000f / Protocol.SAMPLE_RATE
-                val backlogMs = reader.backlog().toFloat() / BYTES_PER_MS
+                val backlogMs = audioLanes.sumOf { it.reader.backlog() }.toFloat() / BYTES_PER_MS
                 val bufferMs = queuedMs + backlogMs
                 if (track.underrunCount != underruns) {
                     underruns = track.underrunCount
@@ -115,6 +129,13 @@ class SpeakerStreamer : Thread("uab-speaker") {
                         targetMs += 5
                         track.bufferSizeInFrames = minOf(track.bufferCapacityInFrames, targetMs * FRAMES_PER_MS)
                     }
+                    lastAdjust = SystemClock.elapsedRealtime()
+                } else if (targetMs > START_BUFFER_MS && SystemClock.elapsedRealtime() - lastAdjust > SHRINK_AFTER_MS) {
+                    // Adaptive in both directions: a burst of underruns (start-up, a USB hiccup) must not pin
+                    // the buffer at its ceiling forever, so give back 5 ms after every quiet stretch.
+                    targetMs -= 5
+                    track.bufferSizeInFrames = minOf(track.bufferCapacityInFrames, targetMs * FRAMES_PER_MS)
+                    lastAdjust = SystemClock.elapsedRealtime()
                 }
                 // Jitter-buffer trim: if the buffer never ran low during the last second, the extra is pure delay.
                 windowMinMs = minOf(windowMinMs, bufferMs)
@@ -145,7 +166,7 @@ class SpeakerStreamer : Thread("uab-speaker") {
                     lastUi = now
                 }
                 if (now - lastPing >= 1000) {
-                    writer.ping()
+                    controlLane.writer.ping()
                     lastPing = now
                 }
                 if (now - lastLog >= 1000) {
@@ -158,7 +179,8 @@ class SpeakerStreamer : Thread("uab-speaker") {
         } finally {
             runCatching { track.pause(); track.flush(); track.stop() }
             track.release()
-            runCatching { sock.close() }
+            opened.forEach { it.close() }
+            control.join(500)
         }
     }
 
@@ -177,5 +199,6 @@ class SpeakerStreamer : Thread("uab-speaker") {
         private const val NETWORK_SLACK_MS = 25
         private const val TRIM_SLACK_MS = 6
         private const val WARMUP_MS = 1500L
+        private const val SHRINK_AFTER_MS = 5000L
     }
 }
