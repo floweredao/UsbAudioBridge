@@ -95,6 +95,16 @@ adb 경로에서는 이렇게 해요.
 open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp/loop.txt; cat /tmp/loop.txt
 ```
 
+## 에코 제거
+
+태블릿 스피커가 맥 소리를 태블릿 마이크 바로 옆에서 틀어서, 받아쓰기나 통화가 맥 소리를 다시 듣게 돼요. 도우미는 이 메아리를 맥에서 지워요. 태블릿 스피커로 보낸 소리를 기준 신호로 삼고, 5ms마다 들어오는 마이크 소리를 speexdsp 에코 제거기와 잔향 억제기에 통과시켜요(`mac/Sources/CSpeexDSP`에 포함, BSD-3-Clause). 잡음 제거와 자동 음량은 꺼 두어 목소리는 그대로예요.
+
+- 어떤 앱이 **Tablet Audio**에서 녹음할 때만(받아쓰기, Zoom, 음성 메모 등) 켜져요. 그냥 듣기만 할 때는 원래 경로 그대로예요. 메뉴에 *Echo cancel on/off*로 보여요.
+- 비용: 5ms 조각마다 CPU 약 0.2~0.3ms이고 버퍼를 더 쓰지 않아서 느낄 만한 지연이 없어요. 태블릿 자체 에코 제거(태블릿 앱의 *에코 제거* 스위치)는 대신 약 60ms를 더해요.
+- 소리 없는 자체 시험(`"/Applications/USB Audio Bridge.app/Contents/MacOS/UsbAudioBridge" --aec-selftest`): 맥 소리의 1kHz·2.5kHz는 34.5·40.4dB, 440Hz는 15.2dB 줄고, 가까운 쪽 600Hz는 0.3dB 안으로 그대로예요.
+- 항상 켜거나 끄려면 `defaults write com.floweredao.usbaudiobridge.mac aec on`(또는 `off`), 자동으로 돌리려면 `defaults delete com.floweredao.usbaudiobridge.mac aec`.
+- `--echo-test <초>`는 실제 태블릿으로 재요. 440·1000·2500Hz를 태블릿으로 틀고, 그중 얼마가 Tablet Audio 입력으로 돌아오는지 알려 줘요.
+
 ## 문제 해결
 
 | 증상 | 해결 |

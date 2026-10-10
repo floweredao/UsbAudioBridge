@@ -95,6 +95,16 @@ On the adb path:
 open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp/loop.txt; cat /tmp/loop.txt
 ```
 
+## Echo cancellation
+
+The tablet speaker plays the Mac's sound right next to the tablet mic, so dictation and calls would hear the Mac again. The helper removes that echo on the Mac: what it sends to the tablet speaker is the reference, and every 5 ms mic frame runs through speexdsp's echo canceller and residual echo suppressor (vendored in `mac/Sources/CSpeexDSP`, BSD-3-Clause; noise suppression and AGC stay off so your voice is untouched).
+
+- It is applied only while some app records from **Tablet Audio** (dictation, Zoom, Voice Memos). Plain listening keeps the untouched path. The menu shows *Echo cancel on/off*.
+- Cost: about 0.2-0.3 ms of CPU per 5 ms frame and no extra buffering, so it adds no noticeable delay. The tablet's own echo cancellation (the *Echo cancellation* switch in the tablet app) adds about 60 ms instead.
+- Offline self-test (`"/Applications/USB Audio Bridge.app/Contents/MacOS/UsbAudioBridge" --aec-selftest`, silent): the Mac's 1 kHz and 2.5 kHz tones drop by 34.5 and 40.4 dB, 440 Hz by 15.2 dB, while a near-end 600 Hz tone stays within 0.3 dB.
+- Force it with `defaults write com.floweredao.usbaudiobridge.mac aec on` (or `off`); `defaults delete com.floweredao.usbaudiobridge.mac aec` returns to automatic.
+- `--echo-test <seconds>` measures it on the real tablet: it plays a 440 + 1000 + 2500 Hz mix through the tablet and reports how much of it comes back on the Tablet Audio input.
+
 ## Troubleshooting
 
 | Symptom | Fix |
