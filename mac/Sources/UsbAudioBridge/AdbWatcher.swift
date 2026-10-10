@@ -48,6 +48,18 @@ final class AdbWatcher {
         t.start()
     }
 
+    /// AOA gate: true when the tablet app already holds our accessory default or permission (no prompt),
+    /// or the tablet is unlocked so Android can show its one-time "open with" prompt. Switching a locked
+    /// tablet that has neither makes Android drop accessory mode again, which also drops the adb lanes.
+    func accessoryReady() -> Bool {
+        guard let serial = devices.first(where: { $0.ready })?.serial else { return false }
+        let usb = adb(["-s", serial, "shell", "dumpsys", "usb"]).1
+        if let settings = usb.range(of: "profile_group_settings"), usb[settings.upperBound...].contains(Self.package) {
+            return true
+        }
+        return adb(["-s", serial, "shell", "dumpsys", "trust"]).1.contains("deviceLocked=0")
+    }
+
     /// Re-runs the full setup (reverse + launch) on the next poll.
     func reconnect() {
         lock.lock(); forceSetup = true; lock.unlock()

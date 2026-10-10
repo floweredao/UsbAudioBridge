@@ -14,6 +14,8 @@ let package = Package(
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("ServiceManagement"),
+                .linkedFramework("IOKit"),
+                .linkedFramework("IOUSBHost"),
             ]
         ),
     ],

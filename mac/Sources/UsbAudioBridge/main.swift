@@ -17,6 +17,7 @@ if let i = arguments.firstIndex(of: "--loop-test") {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let bridge = Bridge()
     let adb = AdbWatcher()
+    lazy var aoa = AoaTransport(canSwitch: { [adb] in adb.accessoryReady() }) { [bridge] conn in bridge.acceptAoa(conn) }
     var menu: StatusMenu?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -40,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try bridge.start()
             adb.start()
+            // `defaults write <bundle id> aoa -bool false` keeps the tablet on adb only.
+            if UserDefaults.standard.object(forKey: "aoa") as? Bool ?? true { aoa.start() }
         } catch {
             Log.info("start failed: \(error)")
             let alert = NSAlert()

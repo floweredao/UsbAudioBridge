@@ -129,10 +129,19 @@ final class Bridge {
         speakerRing.clear()
     }
 
-    private func acceptMic(_ group: LaneGroup, _ first: (type: UInt8, payload: [UInt8])?) {
-        guard micEnabled else { group.close(); return }
+    /// AOA carries both directions on one connection, so its single reader (the mic thread) also answers
+    /// the PINGs that keep the speaker side alive, and keeps reading even while the mic is switched off.
+    func acceptAoa(_ conn: Connection) {
+        let group = LaneGroup([conn])
+        swapSpeaker(speakerEnabled ? group : nil)
+        acceptMic(group, nil, viaAccessory: true)
+    }
+
+    private func acceptMic(_ group: LaneGroup, _ first: (type: UInt8, payload: [UInt8])?, viaAccessory: Bool = false) {
+        let keepAudio = micEnabled
+        guard keepAudio || viaAccessory else { group.close(); return }
         swapMic(group)
-        Log.info("tablet mic connected (\(group.lanes.count) lanes)")
+        Log.info(viaAccessory ? "tablet linked over USB accessory (mic + speaker)" : "tablet mic connected (\(group.lanes.count) lanes)")
         if group.lanes.count > 1 { watchControl(group, "mic-ctl") }
         startThread("mic-read") { [unowned self] in
             var buffer = [UInt8](repeating: 0, count: 8192)
@@ -163,6 +172,7 @@ final class Bridge {
                     if lastArrival != 0 { maxGap = max(maxGap, arrival - lastArrival) }
                     lastArrival = arrival
                     let n = frame.length / 2
+                    guard keepAudio else { break }
                     buffer.withUnsafeBytes { raw in
                         for i in 0..<n {
                             let v = Int16(littleEndian: raw.loadUnaligned(fromByteOffset: i * 2, as: Int16.self))
@@ -189,6 +199,7 @@ final class Bridge {
             self.lock.lock()
             let wasCurrent = self.micConn === group
             if wasCurrent { self.micConn = nil; self._stats.micLevelDb = -90 }
+            if self.speakerConn === group { self.speakerConn = nil; self._stats.speakerLevelDb = -90 }
             self.lock.unlock()
             group.close()
             if wasCurrent { Log.info("tablet mic disconnected") }
@@ -308,7 +319,12 @@ final class Bridge {
                         raw.storeBytes(of: v.littleEndian, toByteOffset: i * 2, as: Int16.self)
                     }
                 }
-                if !audioLanes[audioLanes.startIndex + lane].send(Wire.audio, bytes: bytes) { break }
+                if !audioLanes[audioLanes.startIndex + lane].send(Wire.audio, bytes: bytes) {
+                    // A dead link must not hold the sender; closing it lets the readers clear it and the
+                    // next loop pick up whatever link replaced it.
+                    group.close()
+                    break
+                }
                 lane = (lane + 1) % audioLanes.count
                 peak = max(peak, levelDb(floats, chunkFrames * 2))
             }
