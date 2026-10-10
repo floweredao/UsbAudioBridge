@@ -24,9 +24,10 @@ final class AoaTransport {
     private let lock = NSLock()
     private var linkActive = false
     private var lastAttempt = Date.distantPast
-    private var linkedSinceAttempt = false
+    private var everLinked = false
+    private var failedRelinks = 0
     /// A switch that never links makes Android drop accessory mode and re-enumerate, which also drops
-    /// the adb lanes; so after a failed attempt wait this long before asking again.
+    /// the adb lanes; so until a link has worked, or after three relinks in a row failed, wait this long.
     private static let retryAfterFailure: TimeInterval = 600
     private static let retryAfterSuccess: TimeInterval = 5
 
@@ -56,7 +57,12 @@ final class AoaTransport {
         if let accessory = Self.findAccessoryInterface() {
             lock.lock(); linkActive = true; lock.unlock()
             let t = Thread { [unowned self] in
-                self.run(interface: accessory)
+                if self.run(interface: accessory) {
+                    self.everLinked = true
+                    self.failedRelinks = 0
+                } else if self.everLinked {
+                    self.failedRelinks += 1
+                }
                 lock.lock(); linkActive = false; lock.unlock()
             }
             t.name = "aoa-link"
@@ -67,10 +73,9 @@ final class AoaTransport {
         let devices = Self.androidDevices()
         defer { devices.forEach { IOObjectRelease($0) } }
         guard let device = devices.first else { return }
-        let wait = linkedSinceAttempt ? Self.retryAfterSuccess : Self.retryAfterFailure
+        let wait = everLinked && failedRelinks < 3 ? Self.retryAfterSuccess : Self.retryAfterFailure
         guard Date().timeIntervalSince(lastAttempt) > wait, canSwitch() else { return }
         lastAttempt = Date()
-        linkedSinceAttempt = false
         switchToAccessory(device)
     }
 
@@ -96,12 +101,13 @@ final class AoaTransport {
         }
     }
 
-    private func run(interface service: io_service_t) {
+    /// Returns true when the tablet linked. A link that ends is not reset here: the next poll reopens the
+    /// same accessory and gives the app 30 s (enough for an `adb install` and its dex2oat) to answer.
+    /// Only a session nobody answers is reset, because Android cannot reopen a closed accessory session
+    /// until the USB device re-enumerates; the tablet then comes back on adb and, if it linked before,
+    /// is switched again a few seconds later.
+    private func run(interface service: io_service_t) -> Bool {
         defer { IOObjectRelease(service) }
-        // Android cannot reopen an accessory session that was closed (app update, crash, a dropped link)
-        // until the USB device re-enumerates, so every way out of here resets the tablet: it comes back in
-        // normal mode on adb and, if it linked before, is switched again a few seconds later.
-        defer { Self.reset(interfaceService: service) }
         let interface: IOUSBHostInterface
         let input: IOUSBHostPipe
         let output: IOUSBHostPipe
@@ -110,29 +116,33 @@ final class AoaTransport {
             guard let (inAddress, outAddress) = Self.bulkEndpoints(interface) else {
                 Log.info("aoa: accessory interface has no bulk pipes")
                 interface.destroy()
-                return
+                Self.reset(interfaceService: service)
+                return false
             }
             input = try interface.copyPipe(withAddress: Int(inAddress))
             output = try interface.copyPipe(withAddress: Int(outAddress))
         } catch {
             Log.info("aoa: cannot open accessory interface: \(error.localizedDescription)")
+            Self.reset(interfaceService: service)
             Thread.sleep(forTimeInterval: 2)
-            return
+            return false
         }
-        defer { interface.destroy() }
 
         let packet = NSMutableData(length: 16384)!
         var received = 0
         // Wait for the tablet app to open the accessory: it pings every second once it does.
         do {
-            try input.__sendIORequest(with: packet, bytesTransferred: &received, completionTimeout: 10)
+            try input.__sendIORequest(with: packet, bytesTransferred: &received, completionTimeout: 30)
         } catch {
             Log.info("aoa: the tablet app did not answer over the accessory; back to adb")
-            return
+            interface.destroy()
+            Self.reset(interfaceService: service)
+            return false
         }
+        defer { interface.destroy() }
 
         var fds: [Int32] = [0, 0]
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { return }
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else { return false }
         var one: Int32 = 1
         setsockopt(fds[0], SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
         setsockopt(fds[1], SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
@@ -142,7 +152,6 @@ final class AoaTransport {
         let bridgeSide = Connection(fd: fds[0])
         let usbSide = fds[1]
         Log.info("aoa: tablet linked over USB accessory")
-        linkedSinceAttempt = true
         onLink(bridgeSide)
 
         let writer = Thread {
@@ -193,6 +202,7 @@ final class AoaTransport {
         while !writer.isFinished { Thread.sleep(forTimeInterval: 0.01) }
         Darwin.close(usbSide)
         Log.info("aoa: accessory link closed")
+        return true
     }
 
     // MARK: IOKit helpers
