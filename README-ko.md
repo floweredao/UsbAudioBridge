@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="128" alt="USB 오디오 브리지 아이콘">
+
 # USB 오디오 브리지
 
 **안드로이드 태블릿을 USB 선 하나로 맥의 마이크·스피커로 써요.**

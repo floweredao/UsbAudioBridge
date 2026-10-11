@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="128" alt="USB Audio Bridge icon">
+
 # USB Audio Bridge
 
 **Turn an Android tablet into your Mac's microphone and speaker with one USB cable.**
