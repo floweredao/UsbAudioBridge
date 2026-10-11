@@ -1,8 +1,10 @@
-// Draws the app icon (same motif as the Android launcher icon) and writes AppIcon.icns.
-// Usage: swift scripts/make-icon.swift <output-dir>
+// Renders Resources/AppIcon.svg (same motif as the Android launcher icon) into AppIcon.icns and AppIcon-1024.png.
+// Usage: swift scripts/make-icon.swift <resources-dir> [extra-png-out:size ...]
 import AppKit
 
-let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "."
+let resDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "."
+let svgURL = URL(fileURLWithPath: "\(resDir)/AppIcon.svg")
+guard let svg = NSImage(contentsOf: svgURL) else { fatalError("cannot load \(svgURL.path)") }
 let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("AppIcon.iconset")
 try? FileManager.default.removeItem(at: iconset)
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
@@ -13,26 +15,8 @@ func render(_ px: Int) -> Data {
                                bytesPerRow: 0, bitsPerPixel: 0)!
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-    let s = CGFloat(px) / 1024
-    let inset = 100 * s
-    let rect = NSRect(x: inset, y: inset, width: CGFloat(px) - 2 * inset, height: CGFloat(px) - 2 * inset)
-    let shape = NSBezierPath(roundedRect: rect, xRadius: 185 * s, yRadius: 185 * s)
-    NSGradient(colors: [NSColor(srgbRed: 0.31, green: 0.27, blue: 0.90, alpha: 1),
-                        NSColor(srgbRed: 0.49, green: 0.23, blue: 0.93, alpha: 1),
-                        NSColor(srgbRed: 0.05, green: 0.58, blue: 0.53, alpha: 1)])!
-        .draw(in: shape, angle: -45)
-    NSColor.white.setFill()
-    let bars: [(CGFloat, CGFloat)] = [(-2, 150), (-1, 270), (0, 380), (1, 230), (2, 130)]
-    for (i, h) in bars {
-        let w = 64 * s
-        let cx = 512 * s + i * 96 * s
-        let cy = 540 * s
-        NSBezierPath(roundedRect: NSRect(x: cx - w / 2, y: cy - h * s / 2, width: w, height: h * s), xRadius: w / 2, yRadius: w / 2).fill()
-    }
-    NSColor(white: 1, alpha: 0.8).setFill()
-    NSBezierPath(roundedRect: NSRect(x: 448 * s, y: 260 * s, width: 128 * s, height: 60 * s), xRadius: 14 * s, yRadius: 14 * s).fill()
-    NSBezierPath(rect: NSRect(x: 474 * s, y: 215 * s, width: 22 * s, height: 45 * s)).fill()
-    NSBezierPath(rect: NSRect(x: 528 * s, y: 215 * s, width: 22 * s, height: 45 * s)).fill()
+    NSGraphicsContext.current!.imageInterpolation = .high
+    svg.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!
 }
@@ -43,8 +27,13 @@ for base in [16, 32, 128, 256, 512] {
 }
 let task = Process()
 task.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-task.arguments = ["-c", "icns", iconset.path, "-o", "\(outDir)/AppIcon.icns"]
+task.arguments = ["-c", "icns", iconset.path, "-o", "\(resDir)/AppIcon.icns"]
 try task.run()
 task.waitUntilExit()
-try render(1024).write(to: URL(fileURLWithPath: "\(outDir)/AppIcon-1024.png"))
-print("wrote \(outDir)/AppIcon.icns")
+guard task.terminationStatus == 0 else { fatalError("iconutil failed") }
+try render(1024).write(to: URL(fileURLWithPath: "\(resDir)/AppIcon-1024.png"))
+for spec in CommandLine.arguments.dropFirst(2) {
+    let parts = spec.split(separator: ":")
+    try render(Int(parts[1])!).write(to: URL(fileURLWithPath: String(parts[0])))
+}
+print("wrote \(resDir)/AppIcon.icns")

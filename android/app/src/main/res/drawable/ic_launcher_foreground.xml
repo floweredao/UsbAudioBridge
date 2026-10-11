@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Same drawing as mac/Resources/AppIcon.svg (1024 grid), scaled into the 66dp safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M33,48a3,3 0,0 1,6,0v8a3,3 0,0 1,-6,0z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M42,42a3,3 0,0 1,6,0v20a3,3 0,0 1,-6,0z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M51,37a3,3 0,0 1,6,0v30a3,3 0,0 1,-6,0z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M60,44a3,3 0,0 1,6,0v16a3,3 0,0 1,-6,0z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M69,49a3,3 0,0 1,6,0v6a3,3 0,0 1,-6,0z" />
-    <path android:fillColor="#CCFFFFFF" android:pathData="M48,72h12v5a2,2 0,0 1,-2,2h-8a2,2 0,0 1,-2,-2z" />
-    <path android:fillColor="#CCFFFFFF" android:pathData="M50.5,79h2v4h-2zM55.5,79h2v4h-2z" />
+    <group android:scaleX="0.08667" android:scaleY="0.08667"
+        android:translateX="9.625" android:translateY="9.625">
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M296,292h432a84,84 0,0 1,84 84v272a84,84 0,0 1,-84 84h-432a84,84 0,0 1,-84 -84v-272a84,84 0,0 1,84 -84z" />
+        <path android:strokeColor="#FF4338CA" android:strokeWidth="64"
+            android:strokeLineCap="round" android:strokeLineJoin="round"
+            android:pathData="M330,512 C392,512 398,392 450,392 C502,392 522,632 574,632 C626,632 632,512 694,512" />
+    </group>
 </vector>
