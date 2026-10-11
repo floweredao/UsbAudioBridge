@@ -26,7 +26,7 @@ Tools like AudioRelay send audio over UDP, which `adb` cannot forward. This proj
 | --- | --- |
 | `android/` | Tablet app (Kotlin, Jetpack Compose, Material 3, minSdk 26, targetSdk 34). A foreground service records the mic and plays Mac audio, keeps running with the screen off, and reconnects automatically. |
 | `driver/` | **Tablet Audio**, a CoreAudio virtual device (Audio Server plug-in built on [libASPL](https://github.com/gavv/libASPL), MIT) with both an input and an output. Mac apps see one device. The plug-in also publishes a hidden *Tablet Audio Bridge Port* that only the helper opens; the two share a clock and are cross-wired (Tablet Audio output → port input, port output → Tablet Audio input), so nothing an app plays comes back on the Tablet Audio input. |
-| `mac/` | Menu bar helper (Swift, macOS 15+). Watches `adb` for the tablet, runs `adb reverse`, installs the app if it is missing, grants its mic permission, opens the app, and moves audio between the tablet and the Tablet Audio bridge port. |
+| `mac/` | Menu bar helper (Swift, macOS 15+). Watches `adb` for the tablet, runs `adb reverse`, installs the app if it is missing, grants its mic permission, starts the app's bridge service in the background, and moves audio between the tablet and the Tablet Audio bridge port. |
 
 ## Requirements
 
@@ -35,7 +35,21 @@ Tools like AudioRelay send audio over UDP, which `adb` cannot forward. This proj
 - Tablet: Android 8.0 or later, with **USB debugging** enabled and this Mac authorized.
 - To build: Xcode 16+ (Swift 6 toolchain), JDK 17 (`brew install openjdk@17`), and Android SDK 35 (`brew install --cask android-commandlinetools`, then `sdkmanager "platforms;android-35" "build-tools;35.0.0"`).
 
-## Build and install
+## Install from a release
+
+Each [release](https://github.com/floweredao/UsbAudioBridge/releases) has `UsbAudioBridge-<version>-mac.zip` (the menu bar helper, signed with an Apple Development certificate and not notarized), `UsbAudioBridge-<version>.apk` (the tablet app), and `SHA256SUMS.txt`.
+
+```sh
+shasum -a 256 -c SHA256SUMS.txt
+ditto -x -k UsbAudioBridge-*-mac.zip /Applications
+xattr -dr com.apple.quarantine "/Applications/USB Audio Bridge.app"   # not notarized
+open "/Applications/USB Audio Bridge.app"
+adb install -r UsbAudioBridge-*.apk   # optional: the helper installs its bundled copy when the app is missing
+```
+
+The Tablet Audio driver is not in the release yet; build and install it from `driver/` as below.
+
+## Build from source
 
 ```sh
 # Tablet Audio driver (asks for your password; restarts coreaudiod, so audio drops for a second)
@@ -59,7 +73,7 @@ The first launch asks for **microphone access**. Allow it, because macOS treats 
 
 ## Use
 
-1. Plug in the tablet. Within about two seconds the helper sets up `adb reverse` and opens the app, which wakes the screen.
+1. Plug in the tablet. Within about two seconds the helper sets up `adb reverse` and starts the bridge in the background. The tablet screen stays as it is; only a notification shows that the bridge runs. Open the app yourself when you want its controls.
 2. On the Mac, choose **Tablet Audio** as the output and as the input, either system-wide or in a single app such as Zoom or Discord. The Mac volume keys work on it.
 3. The menu bar icon fills in once the tablet is streaming. Its menu shows:
    - the tablet's connection status
@@ -117,7 +131,7 @@ The tablet speaker plays the Mac's sound right next to the tablet mic, so dictat
 | --- | --- |
 | Menu says *adb not found* | `brew install --cask android-platform-tools` |
 | Menu shows *Waiting for the tablet* | Check `adb devices`. If it shows *unauthorized*, accept the USB debugging prompt on the tablet. |
-| Tablet mic shows *busy or blocked* | Android 11+ only lets a foreground service record when it was started while the app was visible. Unlock the tablet and open the app once, or choose **Reconnect Tablet**. |
+| Tablet mic shows *busy or blocked* | Android 11+ only lets a foreground service record when it was started by adb or while the app was visible. Choose **Reconnect Tablet** so the helper starts it again over adb, or open the app once. |
 | Menu says *Tablet Audio driver is not installed* | Run `driver/build.sh` and `driver/install.sh`. |
 | Tablet plays nothing | Make sure the Mac app's output is Tablet Audio. Check the speaker meter in the menu. |
 | Mac apps hear nothing from the tablet | Choose Tablet Audio as the app's input and watch the *Mic* meter in the menu. |
