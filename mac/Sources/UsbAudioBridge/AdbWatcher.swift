@@ -141,12 +141,19 @@ final class AdbWatcher {
 
     /// Starts the bridge in the background. A foreground service started by the adb shell uid may use the mic
     /// on Android 11 even with the screen off, so the app screen never has to wake the tablet or come forward.
-    /// App builds older than that exported service only answer to the activity, so fall back to it.
+    /// App builds older than that exported service refuse the shell (SecurityException) or lack it, so only then
+    /// fall back to the activity. Any other failure (e.g. the package is still being replaced) is left to the
+    /// idle relaunch, which retries in 15 s, instead of opening the app over whatever the user is doing.
     @discardableResult
     private func launch(_ serial: String) -> Bool {
         let (code, out) = adb(["-s", serial, "shell", "am", "start-foreground-service", "-n", Self.service])
         if code == 0 && !out.contains("Error") && !out.contains("Exception") { return true }
-        Log.info("am start-foreground-service: \(out.trimmingCharacters(in: .whitespacesAndNewlines)); opening the app instead")
+        let reply = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard reply.contains("SecurityException") || reply.contains("Not found") else {
+            Log.info("am start-foreground-service: \(reply); retrying later")
+            return false
+        }
+        Log.info("am start-foreground-service: \(reply); opening the app instead")
         let (launchCode, launchOut) = adb(["-s", serial, "shell", "am", "start", "-n", Self.activity])
         if launchCode != 0 || launchOut.contains("Error") { Log.info("am start: \(launchOut)"); return false }
         return true
