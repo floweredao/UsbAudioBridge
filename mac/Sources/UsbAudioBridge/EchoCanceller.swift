@@ -30,13 +30,25 @@ final class EchoCanceller {
         var rate: Int32 = 48_000
         speex_echo_ctl(echo, SPEEX_ECHO_SET_SAMPLING_RATE, &rate)
         preprocess = speex_preprocess_state_init(Int32(Self.frame), 48_000)
-        // Only the residual echo suppressor: denoising and AGC would change the speaker's voice.
-        var off: Int32 = 0
-        speex_preprocess_ctl(preprocess, SPEEX_PREPROCESS_SET_DENOISE, &off)
+        // Only the residual echo suppressor. speexdsp applies it through the denoiser's gain stage, so the
+        // denoiser stays on with its noise suppression at 0 dB (no noise removal); AGC stays off so the
+        // talker's voice is untouched.
+        var on: Int32 = 1, off: Int32 = 0, noNoiseSuppression: Int32 = 0
+        speex_preprocess_ctl(preprocess, SPEEX_PREPROCESS_SET_DENOISE, &on)
+        speex_preprocess_ctl(preprocess, SPEEX_PREPROCESS_SET_NOISE_SUPPRESS, &noNoiseSuppression)
         speex_preprocess_ctl(preprocess, SPEEX_PREPROCESS_SET_AGC, &off)
         speex_preprocess_ctl(preprocess, SPEEX_PREPROCESS_SET_DEREVERB, &off)
         speex_preprocess_ctl(preprocess, SPEEX_PREPROCESS_SET_ECHO_STATE, UnsafeMutableRawPointer(echo))
+        // Residual echo suppression in dB (speexdsp defaults -40 / -15). Deeper values remove more echo but
+        // also duck the talker while the Mac plays; aecSuppress / aecSuppressActive tune it.
+        var suppress = Int32(UserDefaults.standard.object(forKey: "aecSuppress") as? Int ?? Self.suppress)
+        var suppressActive = Int32(UserDefaults.standard.object(forKey: "aecSuppressActive") as? Int ?? Self.suppressActive)
+        speex_preprocess_ctl(preprocess, SPEEX_PREPROCESS_SET_ECHO_SUPPRESS, &suppress)
+        speex_preprocess_ctl(preprocess, SPEEX_PREPROCESS_SET_ECHO_SUPPRESS_ACTIVE, &suppressActive)
     }
+
+    static var suppress = -40
+    static var suppressActive = -15
 
     deinit {
         speex_preprocess_state_destroy(preprocess)

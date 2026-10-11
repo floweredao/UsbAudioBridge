@@ -47,6 +47,13 @@ final class Connection {
         return ok
     }
 
+    /// Bytes written but not yet taken by the peer (SO_NWRITE).
+    var unsentBytes: Int {
+        var value: Int32 = 0
+        var size = socklen_t(MemoryLayout<Int32>.size)
+        return getsockopt(fd, SOL_SOCKET, SO_NWRITE, &value, &size) == 0 ? Int(value) : 0
+    }
+
     @discardableResult
     func send(_ type: UInt8, bytes: [UInt8]) -> Bool {
         bytes.withUnsafeBytes { send(type, $0) }

@@ -19,11 +19,13 @@ enum EchoSelfTest {
         }
         let delay = rate * 70 / 1000
         let room: [(Int, Float)] = [(0, 0.30), (37, -0.12), (151, 0.07), (433, -0.04), (977, 0.02)]
+        // Like the tablet: a small speaker that distorts (soft clipping) and a talker 16 dB below the echo.
+        let speaker = far.map { tanh(2.5 * $0) / 2.5 }
         var mic = [Int16](repeating: 0, count: total)
         for i in 0..<total {
             var v: Float = Float.random(in: -0.0003...0.0003, using: &rng)
-            for (lag, gain) in room where i - delay - lag >= 0 { v += gain * far[i - delay - lag] }
-            if i >= total / 2 { v += 0.03 * Float(sin(2 * .pi * EchoTest.nearTone * Double(i) / Double(rate))) }
+            for (lag, gain) in room where i - delay - lag >= 0 { v += gain * speaker[i - delay - lag] }
+            if i >= total / 2 { v += 0.0085 * Float(sin(2 * .pi * EchoTest.nearTone * Double(i) / Double(rate))) }
             mic[i] = Int16(max(-32768, min(32767, (v * 32767).rounded())))
         }
 
@@ -42,6 +44,22 @@ enum EchoSelfTest {
             return power.map { 10 * log10(max($0 / Double(windows), 1e-12)) }
         }
 
+        let before = levels(mic)
+        var report = String(format: "no processing: far %.1f/%.1f/%.1f dB near %.1f dB\n", before[0], before[1], before[2], before[3])
+        for (suppress, active) in [(-40, -15), (-25, -10), (-15, -6), (0, 0)] {
+            EchoCanceller.suppress = suppress
+            EchoCanceller.suppressActive = active
+            let after = levels(cancel(mic, far))
+            report += String(format: "suppress %d/%d: far %.1f/%.1f/%.1f dB near %.1f dB (near change %.1f dB)\n",
+                             suppress, active, after[0], after[1], after[2], after[3], after[3] - before[3])
+        }
+        EchoCanceller.suppress = -40
+        EchoCanceller.suppressActive = -15
+        return report
+    }
+
+    private static func cancel(_ mic: [Int16], _ far: [Float]) -> [Int16] {
+        let frame = EchoCanceller.frame, total = mic.count
         let canceller = EchoCanceller()
         var processed = mic
         var stereo = [Float](repeating: 0, count: frame * 2)
@@ -52,13 +70,7 @@ enum EchoSelfTest {
             processed.withUnsafeMutableBufferPointer { canceller.process($0.baseAddress! + offset, count: frame, apply: true) }
             offset += frame
         }
-        let before = levels(mic), after = levels(processed)
-        var report = ""
-        for (k, f) in (EchoTest.farTones + [EchoTest.nearTone]).enumerated() {
-            report += String(format: "%@ %.0f Hz off=%.1f dB on=%.1f dB change=%.1f dB\n",
-                             f == EchoTest.nearTone ? "near" : "far", f, before[k], after[k], after[k] - before[k])
-        }
-        return report
+        return processed
     }
 }
 

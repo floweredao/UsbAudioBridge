@@ -14,6 +14,7 @@ final class Bridge {
         var micMaxGapMs: Double = 0
         var echoCancelling = false
         var echoMicrosPerFrame: Double = 0
+        var speakerDropped = 0
     }
 
     static let deviceName = "Tablet Audio"  // Mac apps play to and record from this
@@ -103,10 +104,10 @@ final class Bridge {
                 let s = self.stats
                 guard s.micConnected || s.speakerConnected else { continue }
                 self.lock.lock(); self._stats.micMaxGapMs = 0; self.lock.unlock()
-                Log.info(String(format: "stats mic=%@ level=%.1fdB buf=%.0fms maxGap=%.0fms speaker=%@ level=%.1fdB rtt=%@ aec=%@ aecCost=%.0fus",
+                Log.info(String(format: "stats mic=%@ level=%.1fdB buf=%.0fms maxGap=%.0fms speaker=%@ level=%.1fdB rtt=%@ aec=%@ aecCost=%.0fus spkDrop=%d",
                                 s.micConnected ? "on" : "off", s.micLevelDb, s.micBufferMs, s.micMaxGapMs,
                                 s.speakerConnected ? "on" : "off", s.speakerLevelDb,
-                                s.rttMs.map { String(format: "%.1fms", $0) } ?? "-", s.echoCancelling ? "on" : "off", s.echoMicrosPerFrame))
+                                s.rttMs.map { String(format: "%.1fms", $0) } ?? "-", s.echoCancelling ? "on" : "off", s.echoMicrosPerFrame, s.speakerDropped))
             }
         }
     }
@@ -323,6 +324,7 @@ final class Bridge {
         var lastUi = DispatchTime.now().uptimeNanoseconds
         var lastGroup: LaneGroup?
         var lane = 0
+        var droppedChunks = 0
         while true {
             _ = speakerSignal.wait(timeout: .now() + .milliseconds(100))
             guard let group = current(\.speakerConn) else {
@@ -337,14 +339,21 @@ final class Bridge {
             let audioLanes = group.audio
             while speakerRing.available >= chunkFrames * 2 {
                 _ = speakerRing.read(into: floats, chunkFrames * 2)
-                echo.pushReference(floats, frames: chunkFrames)
                 bytes.withUnsafeMutableBytes { raw in
                     for i in 0..<(chunkFrames * 2) {
                         let v = Int16(max(-32768, min(32767, (floats[i] * 32767).rounded())))
                         raw.storeBytes(of: v.littleEndian, toByteOffset: i * 2, as: Int16.self)
                     }
                 }
-                if !audioLanes[audioLanes.startIndex + lane].send(Wire.audio, bytes: bytes) {
+                let target = audioLanes[audioLanes.startIndex + lane]
+                // The tablet trims its own backlog, but over USB accessory it cannot see what is still queued
+                // on the Mac side, so a single stall would otherwise leave that much delay for good.
+                if audioLanes.count == 1 && target.unsentBytes > chunkFrames * 4 * 6 {
+                    droppedChunks += 1
+                    continue
+                }
+                echo.pushReference(floats, frames: chunkFrames)
+                if !target.send(Wire.audio, bytes: bytes) {
                     // A dead link must not hold the sender; closing it lets the readers clear it and the
                     // next loop pick up whatever link replaced it.
                     group.close()
@@ -355,7 +364,7 @@ final class Bridge {
             }
             let now = DispatchTime.now().uptimeNanoseconds
             if now - lastUi > 100_000_000 {
-                lock.lock(); _stats.speakerLevelDb = peak; lock.unlock()
+                lock.lock(); _stats.speakerLevelDb = peak; _stats.speakerDropped = droppedChunks; lock.unlock()
                 peak = -90
                 lastUi = now
             }
