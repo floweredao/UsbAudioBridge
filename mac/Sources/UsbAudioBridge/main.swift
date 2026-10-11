@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import ServiceManagement
 
 signal(SIGPIPE, SIG_IGN)
 let arguments = CommandLine.arguments
@@ -32,6 +33,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return s.micConnected || s.speakerConnected
         }
         Log.info("USB Audio Bridge helper starting")
+        // A background bridge is only useful if it survives a reboot: turn on Open at Login once, on the
+        // first launch; after that the menu toggle is the user's choice.
+        if !UserDefaults.standard.bool(forKey: "loginItemConfigured") {
+            do {
+                try SMAppService.mainApp.register()
+                Log.info("open at login enabled")
+            } catch {
+                Log.info("could not enable open at login: \(error)")
+            }
+            UserDefaults.standard.set(true, forKey: "loginItemConfigured")
+        }
         // Capturing the Tablet Audio bridge port counts as microphone access; ask once up front.
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             Log.info("microphone access granted=\(granted)")
