@@ -29,6 +29,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- No window: takes the AOA attach without waking the screen or bringing the app forward. -->
+        <activity
+            android:name=".AccessoryActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
             </intent-filter>
@@ -37,9 +47,11 @@
                 android:resource="@xml/accessory_filter" />
         </activity>
 
+        <!-- Exported only to holders of DUMP (adb shell) so the Mac helper can start it without opening the app. -->
         <service
             android:name=".BridgeService"
-            android:exported="false"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
             android:foregroundServiceType="microphone|mediaPlayback" />
     </application>
 </manifest>

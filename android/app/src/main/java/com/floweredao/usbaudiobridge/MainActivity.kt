@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -32,15 +31,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Android only lets a foreground service use the mic if it was started while the app was visible,
-        // so wake the screen and show above the lock screen when the Mac launches us over adb.
-        if (Build.VERSION.SDK_INT >= 27) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
-        }
+        // Only the user opens this screen. The Mac helper starts BridgeService directly over adb (the shell
+        // uid may grant the mic to a foreground service), and accessory attaches go to AccessoryActivity,
+        // so nothing here wakes the screen or comes to the front on its own.
         enableEdgeToEdge()
         BridgeState.init(this)
         setContent {
@@ -64,8 +57,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // The Mac helper re-launches us with `am start` whenever the tablet is plugged in,
-        // and Android launches us with USB_ACCESSORY_ATTACHED when the Mac switches the tablet to AOA.
         openAccessory(intent)
         startBridge()
     }
@@ -77,7 +68,8 @@ class MainActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             intent?.getParcelableExtra(UsbManager.EXTRA_ACCESSORY)
         }
-        if (accessory != null) AoaLink.open(this, accessory)
+        // The user opened the app, so this is the one place allowed to show the accessory permission prompt.
+        AoaLink.open(this, accessory, ask = true)
     }
 
     private fun startBridge() {

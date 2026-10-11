@@ -39,7 +39,7 @@ class AoaLink private constructor(private val fd: ParcelFileDescriptor) {
         private var permissionAsked = false
 
         @Synchronized
-        fun open(context: Context, accessory: UsbAccessory? = null): Boolean {
+        fun open(context: Context, accessory: UsbAccessory? = null, ask: Boolean = false): Boolean {
             current?.let { if (!it.closed) return true }
             val usb = context.getSystemService(UsbManager::class.java) ?: return false
             val target = accessory ?: usb.accessoryList?.firstOrNull { it.manufacturer == MANUFACTURER && it.model == MODEL }
@@ -47,7 +47,8 @@ class AoaLink private constructor(private val fd: ParcelFileDescriptor) {
             if (!usb.hasPermission(target)) {
                 // Android only offers "always open" when the accessory attaches while we are installed;
                 // if it was attached earlier, ask once so the same prompt (with that checkbox) appears.
-                if (!permissionAsked) {
+                // Only when the user has the app open: a prompt from the background would pop over whatever they use.
+                if (ask && !permissionAsked) {
                     permissionAsked = true
                     Log.i(TAG, "accessory attached but not permitted; asking")
                     val intent = Intent("com.floweredao.usbaudiobridge.USB_PERMISSION").setPackage(context.packageName)
