@@ -12,6 +12,7 @@ final class AdbWatcher {
 
     static let package = "com.floweredao.usbaudiobridge"
     static let activity = "\(package)/.MainActivity"
+    static let service = "\(package)/.BridgeService"
 
     private let lock = NSLock()
     private var _devices: [String: Device] = [:]
@@ -113,8 +114,7 @@ final class AdbWatcher {
         }
         _ = adb(["-s", serial, "shell", "pm", "grant", Self.package, "android.permission.RECORD_AUDIO"])
         let reversed = applyReverse(serial)
-        let (launchCode, launchOut) = adb(["-s", serial, "shell", "am", "start", "-n", Self.activity])
-        if launchCode != 0 || launchOut.contains("Error") { note = note ?? "Could not open the app"; Log.info("am start: \(launchOut)") }
+        if !launch(serial) { note = note ?? "Could not open the app" }
         Log.info("tablet \(serial) ready=\(reversed) \(note ?? "")")
         lock.lock()
         _devices[serial] = Device(serial: serial, model: model.isEmpty ? serial : model, ready: reversed, note: note)
@@ -136,7 +136,20 @@ final class AdbWatcher {
         lastRelaunch = now
         Log.info("no audio from \(serial) for 10 s; relaunching the app")
         _ = adb(["-s", serial, "shell", "pm", "grant", Self.package, "android.permission.RECORD_AUDIO"])
-        _ = adb(["-s", serial, "shell", "am", "start", "-n", Self.activity])
+        launch(serial)
+    }
+
+    /// Starts the bridge in the background. A foreground service started by the adb shell uid may use the mic
+    /// on Android 11 even with the screen off, so the app screen never has to wake the tablet or come forward.
+    /// App builds older than that exported service only answer to the activity, so fall back to it.
+    @discardableResult
+    private func launch(_ serial: String) -> Bool {
+        let (code, out) = adb(["-s", serial, "shell", "am", "start-foreground-service", "-n", Self.service])
+        if code == 0 && !out.contains("Error") && !out.contains("Exception") { return true }
+        Log.info("am start-foreground-service: \(out.trimmingCharacters(in: .whitespacesAndNewlines)); opening the app instead")
+        let (launchCode, launchOut) = adb(["-s", serial, "shell", "am", "start", "-n", Self.activity])
+        if launchCode != 0 || launchOut.contains("Error") { Log.info("am start: \(launchOut)"); return false }
+        return true
     }
 
     @discardableResult
