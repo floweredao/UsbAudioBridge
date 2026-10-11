@@ -12,9 +12,13 @@ Tools like AudioRelay send audio over UDP, which `adb` cannot forward. This proj
 - **USB accessory (AOA, preferred).** The helper asks the tablet to switch to Android Open Accessory mode and moves audio over raw USB bulk pipes. adb (USB debugging) stays available in this mode.
 - **adb (fallback).** TCP over `adb reverse`, used when the tablet cannot or may not use accessory mode.
 
-| Dark | Light |
-| --- | --- |
-| ![Tablet app, dark](docs/tablet-dark.png) | ![Tablet app, light](docs/tablet-light.png) |
+**Dark**
+
+![Tablet app, dark](docs/tablet-dark.png)
+
+**Light**
+
+![Tablet app, light](docs/tablet-light.png)
 
 ## Pieces
 

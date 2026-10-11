@@ -12,9 +12,13 @@ AudioRelay 같은 앱은 소리를 UDP로 보내는데, adb는 UDP를 넘기지 
 - **USB 액세서리(AOA, 우선).** 도우미가 태블릿을 Android Open Accessory 모드로 바꾸고 USB 벌크 전송으로 직접 주고받아요. 이 모드에서도 adb(USB 디버깅)는 그대로 쓸 수 있어요.
 - **adb(대체 경로).** `adb reverse` 위의 TCP예요. 태블릿이 액세서리 모드를 쓸 수 없거나 아직 허용하지 않았을 때 써요.
 
-| 다크 | 라이트 |
-| --- | --- |
-| ![태블릿 앱 다크](docs/tablet-dark.png) | ![태블릿 앱 라이트](docs/tablet-light.png) |
+**다크**
+
+![태블릿 앱 다크](docs/tablet-dark.png)
+
+**라이트**
+
+![태블릿 앱 라이트](docs/tablet-light.png)
 
 ## 구성
 
