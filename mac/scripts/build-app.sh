@@ -4,7 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release
+# Keep the builder's home path out of assert() file names in the vendored C code.
+swift build -c release -Xcc "-fmacro-prefix-map=$(cd .. && pwd)=."
 APP="dist/USB Audio Bridge.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
