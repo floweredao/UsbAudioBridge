@@ -101,7 +101,9 @@ open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp
 
 - 어떤 앱이 **Tablet Audio**에서 녹음할 때만(받아쓰기, Zoom, 음성 메모 등) 켜져요. 그냥 듣기만 할 때는 원래 경로 그대로예요. 메뉴에 *Echo cancel on/off*로 보여요.
 - 비용: 5ms 조각마다 CPU 약 0.2~0.3ms이고 버퍼를 더 쓰지 않아서 느낄 만한 지연이 없어요. 태블릿 자체 에코 제거(태블릿 앱의 *에코 제거* 스위치)는 대신 약 60ms를 더해요.
-- 소리 없는 자체 시험(`"/Applications/USB Audio Bridge.app/Contents/MacOS/UsbAudioBridge" --aec-selftest`): 맥 소리의 1kHz·2.5kHz는 34.5·40.4dB, 440Hz는 15.2dB 줄고, 가까운 쪽 600Hz는 0.3dB 안으로 그대로예요.
+- 태블릿에서 잰 값(`--echo-test`, 맥이 440·1000·2500Hz를 계속 내고 태블릿이 600Hz "말소리"를 직접 틀 때): Tablet Audio 입력의 맥 소리가 19.9 / 31.2 / 29.4dB 줄고, 말소리는 0.8dB만 줄어요. 조용하다가 갑자기 나는 짧은 삑 소리는 억제기가 처음에 말소리로 봐서 덜 줄어요(약 4dB).
+- 태블릿 자체 에코 제거도 맥 소리를 없애지만, 맥이 소리를 내는 동안 말소리까지 거의 묻어 버리고 약 60ms를 더해요.
+- `--aec-selftest`는 같은 확인을 소리 없이 가상 신호로 해요.
 - 항상 켜거나 끄려면 `defaults write com.floweredao.usbaudiobridge.mac aec on`(또는 `off`), 자동으로 돌리려면 `defaults delete com.floweredao.usbaudiobridge.mac aec`.
 - `--echo-test <초>`는 실제 태블릿으로 재요. 440·1000·2500Hz를 태블릿으로 틀고, 그중 얼마가 Tablet Audio 입력으로 돌아오는지 알려 줘요.
 
