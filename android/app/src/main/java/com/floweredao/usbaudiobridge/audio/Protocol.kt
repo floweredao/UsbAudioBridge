@@ -119,8 +119,14 @@ class FrameWriter(stream: OutputStream) {
     fun ping() = write(Protocol.TYPE_PING, Protocol.longBytes(System.nanoTime()))
 }
 
+/** BufferedInputStream that can tell how many bytes it holds without asking the underlying stream. */
+private class CountingBufferedInputStream(stream: InputStream, size: Int) : BufferedInputStream(stream, size) {
+    @Synchronized fun buffered(): Int = count - pos
+}
+
 class FrameReader(stream: InputStream) {
-    private val input = DataInputStream(BufferedInputStream(stream, 65536))
+    private val buffered = CountingBufferedInputStream(stream, 65536)
+    private val input = DataInputStream(buffered)
     var type = 0
         private set
     var length = 0
@@ -141,7 +147,9 @@ class FrameReader(stream: InputStream) {
     fun backlog(): Int = try {
         input.available()
     } catch (_: IOException) {
-        0 // accessory file descriptors may not support FIONREAD
+        // Accessory file descriptors do not support FIONREAD; the bytes already pulled into our buffer are
+        // still the backlog, and without them the playback trim never sees delay that builds up over USB.
+        buffered.buffered()
     }
 }
 
