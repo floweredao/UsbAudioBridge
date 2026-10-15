@@ -63,6 +63,9 @@ macOS 15 이상인 맥과 안드로이드 8.0 이상인 태블릿이 필요해�
 **맥 앱에 태블릿 소리가 안 들어가요.**
 앱 입력을 Tablet Audio로 고르고 메뉴의 *Mic* 레벨을 보세요. 레벨은 움직이는데 앱에 무음만 녹음되면 시스템 설정 > 개인정보 보호 및 보안 > 마이크에서 USB Audio Bridge를 허용하세요.
 
+**재부팅하거나 오래 쉬고 나면 맥 소리가 블루투스 스피커로 가요.**
+블루투스 스피커나 헤드셋이 붙으면 macOS가 알아서 그 장치를 입력·출력으로 바꿔요. 그러면 Tablet Audio로 녹음하던 앱이 시작에 실패할 수 있어요. 시스템 설정 > 사운드에서 Tablet Audio를 한 번 골라 두면, 태블릿이 꽂혀 있는 동안 새로 붙은 장치가 가져간 자리를 도우미가 Tablet Audio로 되돌려요. 직접 다른 장치를 고르면 다시 Tablet Audio를 고를 때까지 그대로 둬요. 도우미 로그에 `default input set back to Tablet Audio`가 남아요.
+
 **메뉴가 *Waiting for the tablet*에서 안 넘어가요.**
 `adb devices`를 실행해 보세요. *unauthorized*라면 태블릿에 뜬 USB 디버깅 허용 창에서 허용하세요. `adb`가 없으면 메뉴에 *adb not found*가 뜨니 설치 2단계대로 설치하세요.
 
