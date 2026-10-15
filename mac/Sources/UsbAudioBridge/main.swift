@@ -10,6 +10,12 @@ if arguments.contains("--aec-selftest") {
     exit(0)
 }
 
+if arguments.contains("--default-keeper-selftest") {
+    let report = DefaultKeeperSelfTest.run()
+    print(report)
+    exit(report.contains("FAIL") ? 1 : 0)
+}
+
 if let i = arguments.firstIndex(where: { $0 == "--loop-test" || $0 == "--echo-test" }) {
     // Runs from inside the app bundle so it shares the app's microphone permission.
     let seconds = arguments.count > i + 1 ? Double(arguments[i + 1]) ?? 8 : 8
@@ -24,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let bridge = Bridge()
     let adb = AdbWatcher()
     lazy var aoa = AoaTransport(canSwitch: { [adb] in adb.accessoryReady() }) { [bridge] conn in bridge.acceptAoa(conn) }
+    lazy var keeper = DefaultDeviceKeeper(tabletUID: Bridge.deviceUID) { [bridge] in
+        let s = bridge.stats
+        return s.micConnected || s.speakerConnected
+    }
     var menu: StatusMenu?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -60,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             adb.start()
             // `defaults write <bundle id> aoa -bool false` keeps the tablet on adb only.
             if UserDefaults.standard.object(forKey: "aoa") as? Bool ?? true { aoa.start() }
+            keeper.start()
         } catch {
             Log.info("start failed: \(error)")
             let alert = NSAlert()

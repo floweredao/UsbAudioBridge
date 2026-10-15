@@ -63,6 +63,9 @@ Check that the Mac app's output is Tablet Audio and that the tablet's media volu
 **Mac apps hear nothing from the tablet.**
 Choose Tablet Audio as the app's input and watch the *Mic* meter in the menu. If the meter moves but the app records silence, allow USB Audio Bridge in System Settings > Privacy & Security > Microphone.
 
+**After a restart or a long break, Mac sound goes to a Bluetooth speaker instead.**
+When a Bluetooth speaker or headset connects, macOS makes it the input and output on its own, and apps that record from Tablet Audio can then fail to start. Once you have chosen Tablet Audio in System Settings > Sound, the helper puts it back whenever a newly connected device takes over while the tablet is plugged in. If you pick another device yourself, the helper leaves it alone until you choose Tablet Audio again. The helper log shows `default input set back to Tablet Audio`.
+
 **The menu stays on *Waiting for the tablet*.**
 Run `adb devices`. If the tablet shows *unauthorized*, accept the USB debugging prompt on the tablet. If `adb` is missing, the menu says *adb not found*; install it as in step 2.
 
