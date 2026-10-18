@@ -154,20 +154,26 @@ final class AoaTransport {
         Log.info("aoa: tablet linked over USB accessory")
         onLink(bridgeSide)
 
+        // Both link threads have no run loop, so each USB request gets its own autorelease pool: the pipe
+        // autoreleases the data it sends, and without a pool every 5 ms packet stayed in memory for good.
         let writer = Thread {
             let chunk = NSMutableData(length: 16384)!
             while true {
                 let n = Darwin.read(usbSide, chunk.mutableBytes, chunk.length)
                 if n < 0 && errno == EINTR { continue }
                 if n <= 0 { break }
-                let data = NSMutableData(bytes: chunk.bytes, length: n)
-                var sent = 0
-                do {
-                    try output.__sendIORequest(with: data, bytesTransferred: &sent, completionTimeout: 2)
-                } catch {
-                    Log.info("aoa: write failed: \(error.localizedDescription)")
-                    break
+                let sentOK: Bool = autoreleasepool {
+                    let data = NSMutableData(bytes: chunk.bytes, length: n)
+                    var sent = 0
+                    do {
+                        try output.__sendIORequest(with: data, bytesTransferred: &sent, completionTimeout: 2)
+                        return true
+                    } catch {
+                        Log.info("aoa: write failed: \(error.localizedDescription)")
+                        return false
+                    }
                 }
+                if !sentOK { break }
             }
             Darwin.shutdown(usbSide, SHUT_RDWR)
             try? input.__abort(with: .asynchronous)
@@ -190,7 +196,9 @@ final class AoaTransport {
             do {
                 // The app pings every second, so 3 s of silence means it died (e.g. an update) while the
                 // accessory stays configured; dropping the link lets the adb watchdog relaunch it.
-                try input.__sendIORequest(with: packet, bytesTransferred: &received, completionTimeout: 3)
+                try autoreleasepool {
+                    try input.__sendIORequest(with: packet, bytesTransferred: &received, completionTimeout: 3)
+                }
             } catch {
                 Log.info("aoa: no data from the tablet app for 3 s")
                 break
