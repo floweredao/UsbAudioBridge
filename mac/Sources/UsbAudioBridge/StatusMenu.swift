@@ -81,7 +81,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
                                                                    describe(s.speakerConnected, bridge.speakerEnabled, s.speakerLevelDb))))
         if let rtt = s.rttMs, connected {
             rows.append(Row(key: "latency", kind: .info, text: String(format: L("Round trip %@ ms · mic buffer %@ ms"),
-                                                                       fixed(String(format: "%.1f", rtt), 5), fixed(String(format: "%.0f", s.micBufferMs), 3))))
+                                                                       fixed(String(format: "%.1f", rtt), 4), fixed(String(format: "%.0f", s.micBufferMs), 2))))
         }
         let mode = L(["on": "always", "off": "never"][EchoGate.mode] ?? "automatic")
         rows.append(Row(key: "echo", kind: .info, text: String(format: L(s.echoCancelling ? "Echo cancellation: on (%@)" : "Echo cancellation: off (%@)"), mode)))
