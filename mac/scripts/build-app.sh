@@ -13,6 +13,7 @@ cp .build/release/UsbAudioBridge "$APP/Contents/MacOS/"
 cp Resources/Info.plist "$APP/Contents/"
 [ -f Resources/AppIcon.icns ] || swift scripts/make-icon.swift Resources
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+cp -R Resources/en.lproj Resources/ko.lproj "$APP/Contents/Resources/"
 
 APK=../android/app/build/outputs/apk/release/app-release.apk
 if [ -f "$APK" ]; then

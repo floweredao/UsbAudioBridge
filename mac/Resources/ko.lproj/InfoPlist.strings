@@ -1,0 +1,2 @@
+"CFBundleDisplayName" = "USB 오디오 브리지";
+"NSMicrophoneUsageDescription" = "Mac 앱이 Tablet Audio로 보내는 소리를 태블릿에서 재생하려면 이 소리를 읽어야 해요.";

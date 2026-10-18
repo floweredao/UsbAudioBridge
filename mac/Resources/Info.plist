@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleLocalizations</key><array><string>en</string><string>ko</string></array>
     <key>CFBundleName</key><string>USB Audio Bridge</string>
     <key>CFBundleDisplayName</key><string>USB Audio Bridge</string>
     <key>CFBundleIdentifier</key><string>com.floweredao.usbaudiobridge.mac</string>
@@ -12,6 +14,6 @@
     <key>CFBundleVersion</key><string>5</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
-    <key>NSMicrophoneUsageDescription</key><string>USB Audio Bridge reads the BlackHole 16ch device so Mac audio can play on your tablet.</string>
+    <key>NSMicrophoneUsageDescription</key><string>USB Audio Bridge reads what Mac apps play to Tablet Audio so it can play on your tablet.</string>
 </dict>
 </plist>
