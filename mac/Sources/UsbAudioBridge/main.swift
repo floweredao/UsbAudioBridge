@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             Log.info("start failed: \(error)")
             let alert = NSAlert()
-            alert.messageText = "USB Audio Bridge could not start"
+            alert.messageText = L("USB Audio Bridge could not start")
             alert.informativeText = "\(error)"
             alert.runModal()
             NSApp.terminate(nil)
