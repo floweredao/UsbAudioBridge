@@ -29,7 +29,12 @@
     <string name="state_off">Off</string>
     <string name="battery_title">Keep running with the screen off</string>
     <string name="battery_body">Allow the app to ignore battery optimization so the bridge is never paused.</string>
-    <string name="battery_action">Allow</string>
+    <string name="battery_action">Turn off battery limit</string>
+    <string name="permission_title">Why the app asks</string>
+    <string name="permission_mic">The Mac hears you through this tablet\'s microphone.</string>
+    <string name="permission_notifications">A notification shows while the bridge is running.</string>
+    <string name="permission_next">Allow access on the next screen.</string>
+    <string name="permission_continue">Continue</string>
     <string name="footer_hint">On the Mac, choose Tablet Audio as the input and the output. The Mac helper sets up the USB link automatically.</string>
     <string name="notif_channel">Audio bridge</string>
     <string name="notif_connected">Mic: %1$s · Speaker: %2$s</string>

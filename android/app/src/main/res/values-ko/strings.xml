@@ -17,7 +17,7 @@
     <string name="mic_caption">태블릿 → 맥</string>
     <string name="mic_gain">마이크 증폭</string>
     <string name="echo_cancel">에코 제거</string>
-    <string name="echo_cancel_caption">태블릿의 음성 처리를 씁니다. 맥 앱이 에코를 직접 지우면 꺼 두세요.</string>
+    <string name="echo_cancel_caption">태블릿의 음성 처리를 써요. 맥 앱이 에코를 직접 지우면 꺼 두세요.</string>
     <string name="mic_permission">마이크 권한이 필요해요. 앱을 다시 열어 허용해 주세요.</string>
     <string name="mic_blocked">마이크를 쓸 수 없어요. 마이크를 쓰는 다른 앱을 닫고, 화면을 켠 채로 이 앱을 열어 주세요.</string>
     <string name="speaker_title">스피커</string>
@@ -29,7 +29,12 @@
     <string name="state_off">꺼짐</string>
     <string name="battery_title">화면이 꺼져도 계속 동작</string>
     <string name="battery_body">배터리 최적화에서 이 앱을 빼면 브리지가 멈추지 않아요.</string>
-    <string name="battery_action">허용</string>
+    <string name="battery_action">배터리 제한 끄기</string>
+    <string name="permission_title">권한을 묻는 이유</string>
+    <string name="permission_mic">맥이 이 태블릿의 마이크로 소리를 들어요.</string>
+    <string name="permission_notifications">브리지가 도는 동안 알림이 떠요.</string>
+    <string name="permission_next">다음 창에서 허용해 주세요.</string>
+    <string name="permission_continue">계속</string>
     <string name="footer_hint">맥에서 입력과 출력 모두 Tablet Audio로 고르세요. USB 연결은 맥 도우미가 자동으로 잡아요.</string>
     <string name="notif_channel">오디오 브리지</string>
     <string name="notif_connected">마이크: %1$s · 스피커: %2$s</string>

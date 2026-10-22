@@ -15,7 +15,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.res.stringResource
 import com.floweredao.usbaudiobridge.audio.AoaLink
 import com.floweredao.usbaudiobridge.audio.BridgeState
 import com.floweredao.usbaudiobridge.ui.BridgeScreen
@@ -23,6 +27,8 @@ import com.floweredao.usbaudiobridge.ui.BridgeTheme
 
 class MainActivity : ComponentActivity() {
     private val batteryUnrestricted = mutableStateOf(true)
+    /** Permissions waiting for the user to read why they are asked before Android shows its prompt. */
+    private val pendingPermissions = mutableStateOf<List<String>>(emptyList())
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         // Restart so the foreground service picks up the microphone type once access is granted.
@@ -36,6 +42,8 @@ class MainActivity : ComponentActivity() {
         // so nothing here wakes the screen or comes to the front on its own.
         enableEdgeToEdge()
         BridgeState.init(this)
+        // Read the real value before the first frame so the battery banner does not push the cards down later.
+        batteryUnrestricted.value = isBatteryUnrestricted()
         setContent {
             BridgeTheme {
                 BridgeScreen(
@@ -44,6 +52,25 @@ class MainActivity : ComponentActivity() {
                     onStart = ::startBridge,
                     onStop = { BridgeService.stop(this) },
                 )
+                val pending = pendingPermissions.value
+                if (pending.isNotEmpty()) {
+                    val ask = {
+                        pendingPermissions.value = emptyList()
+                        permissions.launch(pending.toTypedArray())
+                    }
+                    AlertDialog(
+                        onDismissRequest = ask,
+                        confirmButton = { TextButton(onClick = ask) { Text(stringResource(R.string.permission_continue)) } },
+                        title = { Text(stringResource(R.string.permission_title)) },
+                        text = {
+                            Text(buildList {
+                                if (Manifest.permission.RECORD_AUDIO in pending) add(stringResource(R.string.permission_mic))
+                                if (Manifest.permission.POST_NOTIFICATIONS in pending) add(stringResource(R.string.permission_notifications))
+                                add(stringResource(R.string.permission_next))
+                            }.joinToString(" "))
+                        },
+                    )
+                }
             }
         }
         openAccessory(intent)
@@ -52,8 +79,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        batteryUnrestricted.value = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        batteryUnrestricted.value = isBatteryUnrestricted()
     }
+
+    private fun isBatteryUnrestricted() =
+        getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -80,7 +110,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         BridgeService.start(this)
-        if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray())
+        // Say why first; the dialog's Continue button opens Android's prompt.
+        if (missing.isNotEmpty()) pendingPermissions.value = missing
     }
 
     @SuppressLint("BatteryLife")

@@ -3,6 +3,7 @@ package com.floweredao.usbaudiobridge.ui
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -30,8 +31,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -69,7 +72,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -128,12 +133,16 @@ fun BridgeScreen(
                             onChecked = { v -> BridgeState.updateSettings { it.copy(echoCancel = v) } },
                         )
                         if (status.micPermission && status.micBlocked && status.mic != LinkState.Connected) {
-                            Text(stringResource(R.string.mic_blocked), color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodyMedium)
+                            SelectionContainer {
+                                Text(stringResource(R.string.mic_blocked), color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                         if (!status.micPermission) {
-                            Text(stringResource(R.string.mic_permission), color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodyMedium)
+                            SelectionContainer {
+                                Text(stringResource(R.string.mic_permission), color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 }
@@ -193,9 +202,37 @@ private fun rememberUsbPlugged(): Boolean {
     return plugged
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Header(status: Status, onStart: () -> Unit, onStop: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    val controls: @Composable () -> Unit = {
+        StatusPill(status)
+        FilledTonalButton(onClick = if (status.serviceRunning) onStop else onStart) {
+            Icon(Icons.Rounded.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(if (status.serviceRunning) R.string.action_stop else R.string.action_start))
+        }
+    }
+    // With large text the name, pill and button no longer fit on one line: put the controls on their own row.
+    if (LocalDensity.current.fontScale >= 1.3f) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { HeaderTitle() }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) { controls() }
+        }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HeaderTitle()
+            controls()
+        }
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.HeaderTitle() {
+    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
                 .size(52.dp)
@@ -211,13 +248,6 @@ private fun Header(status: Status, onStart: () -> Unit, onStop: () -> Unit) {
             Text(stringResource(R.string.tagline), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        StatusPill(status)
-        Spacer(Modifier.width(12.dp))
-        FilledTonalButton(onClick = if (status.serviceRunning) onStop else onStart) {
-            Icon(Icons.Rounded.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(if (status.serviceRunning) R.string.action_stop else R.string.action_start))
-        }
     }
 }
 
@@ -231,9 +261,14 @@ private fun StatusPill(status: Status) {
         else -> stringResource(R.string.status_stopped) to MaterialTheme.colorScheme.outline
     }
     val dotColor by animateColorAsState(color, label = "dot")
+    // Animations turned off in system settings (animator duration scale 0) means no repeating pulse.
+    val context = LocalContext.current
+    val reduceMotion = remember(context) {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
     val pulse = rememberInfiniteTransition(label = "pulse")
     val alpha by pulse.animateFloat(
-        initialValue = 1f, targetValue = if (waiting) 0.3f else 1f,
+        initialValue = 1f, targetValue = if (waiting && !reduceMotion) 0.3f else 1f,
         animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "alpha",
     )
     Surface(shape = CircleShape, color = dotColor.copy(alpha = 0.14f)) {
@@ -313,7 +348,11 @@ private fun ChannelCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // The whole row is the switch, so TalkBack reads the channel name together with its on/off state.
+            Row(
+                Modifier.toggleable(value = enabled, role = Role.Switch, onValueChange = onEnabled),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 val tint = if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
                 Box(Modifier.size(48.dp).clip(CircleShape).background(tint), contentAlignment = Alignment.Center) {
                     Icon(icon, contentDescription = null,
@@ -325,7 +364,7 @@ private fun ChannelCard(
                     Text("$caption · ${linkLabel(link)}", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = enabled, onCheckedChange = onEnabled)
+                Switch(checked = enabled, onCheckedChange = null)
             }
             LevelMeter(if (link == LinkState.Connected) levelDb else -90f)
             Column {
@@ -335,6 +374,7 @@ private fun ChannelCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Slider(
+                    modifier = Modifier.semantics { contentDescription = sliderLabel },
                     value = sliderValue,
                     onValueChange = onSlider,
                     valueRange = sliderRange,
@@ -394,11 +434,14 @@ private fun LevelMeter(levelDb: Float) {
 
 @Composable
 private fun ToggleRow(title: String, caption: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChecked),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onChecked)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
