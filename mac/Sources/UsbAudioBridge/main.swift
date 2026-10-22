@@ -75,7 +75,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.info("start failed: \(error)")
             let alert = NSAlert()
             alert.messageText = L("USB Audio Bridge could not start")
-            alert.informativeText = "\(error)"
+            // The raw error stays in the log; the alert says what happened and what to do next.
+            if case BridgeError.portBusy = error {
+                alert.informativeText = L("Another copy of USB Audio Bridge is already running. Quit it, then open the app again.")
+            } else {
+                alert.informativeText = L("The connection for the tablet could not be opened. Restart the Mac, then open the app again. Details are in the log.")
+            }
             alert.runModal()
             NSApp.terminate(nil)
         }

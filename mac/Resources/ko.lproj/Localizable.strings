@@ -28,3 +28,7 @@
 "streaming · silent" = "전송 중 · 무음";
 "streaming · %@ dB" = "전송 중 · %@ dB";
 "USB Audio Bridge could not start" = "USB 오디오 브리지를 시작하지 못했어요";
+"Another copy of USB Audio Bridge is already running. Quit it, then open the app again." = "USB 오디오 브리지가 이미 실행 중이에요. 실행 중인 앱을 종료한 뒤 다시 열어 주세요.";
+"The connection for the tablet could not be opened. Restart the Mac, then open the app again. Details are in the log." = "태블릿 연결을 열지 못했어요. 맥을 다시 시작한 뒤 앱을 다시 열어 주세요. 자세한 내용은 로그에 있어요.";
+"Microphone access is off, so the tablet speaker gets no sound" = "마이크 접근이 꺼져 있어서 태블릿 스피커로 소리가 가지 않아요";
+"Open Microphone Settings…" = "마이크 설정 열기…";

@@ -203,7 +203,7 @@ final class Server {
         }
         guard bound == 0 else {
             Darwin.close(fd)
-            throw BridgeError.socket("port \(port) is busy (errno \(errno)); is another copy running?")
+            throw BridgeError.portBusy(port, errno)
         }
         guard listen(fd, 4) == 0 else { throw BridgeError.socket("listen() failed: \(errno)") }
         let thread = Thread { [onAccept] in
@@ -223,11 +223,13 @@ final class Server {
 
 enum BridgeError: Error, CustomStringConvertible {
     case socket(String)
+    case portBusy(UInt16, Int32)
     case audio(String)
 
     var description: String {
         switch self {
         case .socket(let m), .audio(let m): return m
+        case .portBusy(let port, let code): return "port \(port) is busy (errno \(code)); is another copy running?"
         }
     }
 }

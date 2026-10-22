@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import ServiceManagement
 
 func L(_ key: String) -> String { NSLocalizedString(key, comment: "") }
@@ -17,9 +18,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
     private var menuOpen = false
     private var rowKeys: [String] = []
+    private var iconSymbol = ""
+    private var reconnectUntil = Date.distantPast
 
     private struct Row {
-        enum Kind { case title, info, separator, toggle(Bool, Selector), action(Selector, String), quit }
+        /// `status` rows (connection state, warnings) use the label color; `info` rows (numbers) the secondary one.
+        enum Kind { case title, status, info, separator, toggle(Bool, Selector), action(Selector, String), quit }
         let key: String
         let kind: Kind
         let text: String
@@ -44,12 +48,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     private func tick() {
         let symbol = connected ? "waveform.circle.fill" : "waveform.circle"
-        if item.button?.image?.accessibilityDescription != symbol {
-            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: symbol)
+        let label = L(connected ? "USB Audio Bridge: connected" : "USB Audio Bridge: waiting for the tablet")
+        if symbol != iconSymbol {
+            iconSymbol = symbol
+            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
             image?.isTemplate = true
             item.button?.image = image
         }
-        item.button?.toolTip = L(connected ? "USB Audio Bridge: connected" : "USB Audio Bridge: waiting for the tablet")
+        item.button?.toolTip = label
         if menuOpen { refresh() }
     }
 
@@ -62,17 +68,26 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         var rows: [Row] = [Row(key: "title", kind: .title, text: L("USB Audio Bridge"))]
 
         if adb.adbPath == nil {
-            rows.append(Row(key: "adb-missing", kind: .info, text: "⚠︎ " + L("adb not found (brew install --cask android-platform-tools)")))
+            rows.append(Row(key: "adb-missing", kind: .status, text: "⚠︎ " + L("adb not found (brew install --cask android-platform-tools)")))
         } else if devices.isEmpty {
-            rows.append(Row(key: "waiting", kind: .info, text: "○ " + L("Waiting for the tablet on USB…")))
+            rows.append(Row(key: "waiting", kind: .status, text: "○ " + L("Waiting for the tablet on USB…")))
         } else {
+            // Right after Reconnect Tablet the link is being torn down and set up again; say so at once.
+            let reconnecting = Date() < reconnectUntil
             for d in devices {
-                let state = L(connected ? "connected" : (d.ready ? "starting the app…" : "setting up…"))
-                rows.append(Row(key: "device-\(d.serial)", kind: .info, text: "● \(d.model) — \(state)"))
-                if let note = d.note { rows.append(Row(key: "note-\(d.serial)", kind: .info, text: "   ⚠︎ " + L(note))) }
+                let state = L(reconnecting ? "setting up…" : connected ? "connected" : (d.ready ? "starting the app…" : "setting up…"))
+                rows.append(Row(key: "device-\(d.serial)", kind: .status, text: "● \(d.model) — \(state)"))
+                if let note = d.note { rows.append(Row(key: "note-\(d.serial)", kind: .status, text: "   ⚠︎ " + L(note))) }
             }
         }
-        if let error = s.audioError { rows.append(Row(key: "audio-error", kind: .info, text: "⚠︎ \(error)")) }
+        if let error = s.audioError { rows.append(Row(key: "audio-error", kind: .status, text: "⚠︎ \(error)")) }
+        // Capturing what Mac apps play to Tablet Audio counts as microphone access, so without it the tablet
+        // speaker stays silent.
+        let micAccess = AVCaptureDevice.authorizationStatus(for: .audio)
+        if micAccess == .denied || micAccess == .restricted {
+            rows.append(Row(key: "mic-denied", kind: .status, text: "⚠︎ " + L("Microphone access is off, so the tablet speaker gets no sound")))
+            rows.append(Row(key: "mic-settings", kind: .action(#selector(openMicrophoneSettings), ""), text: L("Open Microphone Settings…")))
+        }
 
         rows.append(Row(key: "sep-status", kind: .separator, text: ""))
         rows.append(Row(key: "mic", kind: .info, text: String(format: L("Microphone (tablet → %@): %@"), Bridge.deviceName,
@@ -109,8 +124,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         for (index, row) in rows.enumerated() {
             guard let item = menu.item(at: index) else { continue }
             switch row.kind {
-            case .info:
-                if item.title != row.text { item.attributedTitle = infoTitle(row.text) }
+            case .status, .info:
+                if item.title != row.text { item.attributedTitle = infoTitle(row) }
             case .toggle(let on, _):
                 item.state = on ? .on : .off
             default:
@@ -128,9 +143,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             i.attributedTitle = NSAttributedString(string: row.text, attributes: [.font: NSFont.boldSystemFont(ofSize: 13)])
             i.isEnabled = false
             return i
-        case .info:
+        case .status, .info:
             let i = NSMenuItem(title: row.text, action: nil, keyEquivalent: "")
-            i.attributedTitle = infoTitle(row.text)
+            i.attributedTitle = infoTitle(row)
             i.isEnabled = false
             return i
         case .toggle(let on, let action):
@@ -147,11 +162,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
     }
 
-    private func infoTitle(_ text: String) -> NSAttributedString {
+    private func infoTitle(_ row: Row) -> NSAttributedString {
         let size = NSFont.menuFont(ofSize: 0).pointSize
-        return NSAttributedString(string: text, attributes: [
+        let color: NSColor = if case .status = row.kind { .labelColor } else { .secondaryLabelColor }
+        return NSAttributedString(string: row.text, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .regular),
-            .foregroundColor: NSColor.disabledControlTextColor,
+            .foregroundColor: color,
         ])
     }
 
@@ -169,7 +185,15 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     @objc private func toggleMic() { bridge.micEnabled.toggle(); refresh() }
     @objc private func toggleSpeaker() { bridge.speakerEnabled.toggle(); refresh() }
-    @objc private func reconnectTablet() { adb.reconnect() }
+    @objc private func reconnectTablet() {
+        adb.reconnect()
+        reconnectUntil = Date().addingTimeInterval(3)
+        refresh()
+    }
+
+    @objc private func openMicrophoneSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+    }
     @objc private func showLog() { NSWorkspace.shared.open(Log.url) }
 
     @objc private func toggleLogin() {
