@@ -68,4 +68,34 @@ final class LaneJoinerTests: XCTestCase {
             pair.tablet.close()
         }
     }
+
+    func testLanesThatDisagreeOnTheLaneCountDoNotFormAGroup() {
+        let log = GroupLog()
+        let grouped = expectation(description: "group")
+        let joiner = LaneJoiner { group, first in
+            log.append(group, first)
+            grouped.fulfill()
+        }
+        // Two connections claim lane 5 of 6. Whichever the joiner handles second replaces (closes) the
+        // other, so an end-of-file on either means both JOINs were handled.
+        let a = join(joiner, session: 7, lane: 5, count: 6)
+        let b = join(joiner, session: 7, lane: 5, count: 6)
+        XCTAssertTrue(peerClosedAny([a.tablet, b.tablet]))
+        // Lane 0 now says the session has 2 lanes. Two lanes are pending, but lane 1 never joined:
+        // handing over lanes 0 and 1 would need a lane that does not exist.
+        let c = join(joiner, session: 7, lane: 0, count: 2)
+        let d = join(joiner, session: 7, lane: 0, count: 2)
+        XCTAssertTrue(peerClosedAny([c.tablet, d.tablet]))
+        XCTAssertTrue(log.all.isEmpty)
+
+        // A complete session still forms and closes what was left of the inconsistent one.
+        let e0 = join(joiner, session: 8, lane: 0, count: 2)
+        let e1 = join(joiner, session: 8, lane: 1, count: 2)
+        defer { [a, b, c, d, e0, e1].forEach { $0.mac.close(); $0.tablet.close() } }
+        wait(for: [grouped], timeout: 5)
+        for lane in [a, b, c, d] { XCTAssertTrue(peerClosed(lane.tablet)) }
+        let entries = log.all
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.group.lanes.map { ObjectIdentifier($0) }, [e0, e1].map { ObjectIdentifier($0.mac) })
+    }
 }
