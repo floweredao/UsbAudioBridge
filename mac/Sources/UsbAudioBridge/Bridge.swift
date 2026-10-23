@@ -46,7 +46,7 @@ final class Bridge {
     }
 
     // Tablet mic, mono, 200 ms max. Playback starts once 15 ms is queued and trims back when it exceeds 45 ms.
-    private let micRing = FloatRing(capacity: 9600)
+    let micRing = FloatRing(capacity: 9600)
     private let micTarget = 720
     private let micMax = 2160
     private var micPrimed = false
@@ -263,7 +263,7 @@ final class Bridge {
         }
     }
 
-    private func handleControl(_ type: UInt8, _ buffer: [UInt8], _ length: Int, _ conn: Connection) {
+    func handleControl(_ type: UInt8, _ buffer: [UInt8], _ length: Int, _ conn: Connection) {
         switch type {
         case Wire.ping:
             conn.send(Wire.pong, bytes: Array(buffer[0..<length]))
@@ -281,15 +281,19 @@ final class Bridge {
     // MARK: audio paths
 
     /// Real-time: tablet mic -> Tablet Audio input (mono duplicated to both channels).
-    private func renderMic(_ out: UnsafeMutablePointer<Float>, _ frames: Int) {
-        let available = micRing.available
+    func renderMic(_ out: UnsafeMutablePointer<Float>, _ frames: Int) {
+        var available = micRing.available
         if !micPrimed {
             if available >= micTarget { micPrimed = true } else {
                 out.update(repeating: 0, count: frames * 2)
                 return
             }
         }
-        if available > micMax { micRing.discard(available - micTarget) }
+        if available > micMax {
+            micRing.discard(available - micTarget)
+            // The window below must see what is left, or its trim can empty the queue right after this one.
+            available = micTarget
+        }
         // Jitter-buffer trim: if the queue never dipped near the target during the last second, drop the surplus.
         micWindowMin = min(micWindowMin, available)
         micWindowFrames += frames

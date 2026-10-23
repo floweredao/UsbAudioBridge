@@ -158,7 +158,8 @@ final class LaneJoiner {
             var lanes = pending[session] ?? [:]
             let replaced = lanes[lane]
             lanes[lane] = conn
-            guard lanes.count == count else {
+            // Lanes that announced a different count must not complete the group (it would miss a lane).
+            guard lanes.count == count, lanes.keys.allSatisfy({ $0 < count }) else {
                 pending[session] = lanes
                 lock.unlock()
                 replaced?.close()
