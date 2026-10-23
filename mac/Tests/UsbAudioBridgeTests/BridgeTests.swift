@@ -68,6 +68,20 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(bridge.micRing.available, 240 - 128)
     }
 
+    func testABurstAtTheEndOfTheTrimWindowDoesNotEmptyTheQueue() {
+        let bridge = Bridge()
+        feed(bridge, 1500)
+        for _ in 0..<374 {
+            feed(bridge, 128)
+            _ = render(bridge)
+        }
+        // A late bunch of packets arrives just as the one-second window closes: the 45 ms cap cuts the queue
+        // back to 15 ms, and the window trim must then work from that, not from what was there before.
+        feed(bridge, 128 + 700)
+        XCTAssertEqual(render(bridge), [Float](repeating: 0.5, count: 256), "the mic dropped out")
+        XCTAssertEqual(bridge.micRing.available, 240 - 128)
+    }
+
     func testPingIsAnsweredWithTheSamePayload() {
         let bridge = Bridge()
         let (mac, tablet) = connectionPair()

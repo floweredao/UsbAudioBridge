@@ -282,14 +282,18 @@ final class Bridge {
 
     /// Real-time: tablet mic -> Tablet Audio input (mono duplicated to both channels).
     func renderMic(_ out: UnsafeMutablePointer<Float>, _ frames: Int) {
-        let available = micRing.available
+        var available = micRing.available
         if !micPrimed {
             if available >= micTarget { micPrimed = true } else {
                 out.update(repeating: 0, count: frames * 2)
                 return
             }
         }
-        if available > micMax { micRing.discard(available - micTarget) }
+        if available > micMax {
+            micRing.discard(available - micTarget)
+            // The window below must see what is left, or its trim can empty the queue right after this one.
+            available = micTarget
+        }
         // Jitter-buffer trim: if the queue never dipped near the target during the last second, drop the surplus.
         micWindowMin = min(micWindowMin, available)
         micWindowFrames += frames
