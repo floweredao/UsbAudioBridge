@@ -31,6 +31,11 @@ let package = Package(
                 .linkedFramework("IOUSBHost"),
             ]
         ),
+        .testTarget(
+            name: "UsbAudioBridgeTests",
+            dependencies: ["UsbAudioBridge"],
+            path: "Tests/UsbAudioBridgeTests"
+        ),
     ],
     swiftLanguageModes: [.v5]
 )
