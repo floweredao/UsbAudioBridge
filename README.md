@@ -41,7 +41,7 @@ You need a Mac with macOS 15 or later and an Android tablet with Android 8.0 or 
    xattr -dr com.apple.quarantine "/Applications/USB Audio Bridge.app"
    open "/Applications/USB Audio Bridge.app"
    ```
-6. Allow **microphone access** when macOS asks. The helper reads the tablet's sound through the Tablet Audio device, which macOS counts as microphone input.
+6. Allow **microphone access** when macOS asks. The helper reads what Mac apps play to Tablet Audio through the driver's hidden port, which macOS counts as microphone input; without it the tablet speaker stays silent.
 7. The helper installs the tablet app by itself when it is missing. To install it yourself instead, run `adb install -r UsbAudioBridge-*.apk`.
 
 ## First use
@@ -49,37 +49,37 @@ You need a Mac with macOS 15 or later and an Android tablet with Android 8.0 or 
 1. Plug in the tablet. Within about two seconds the bridge starts in the background and a notification on the tablet shows it is running. The tablet screen stays as it is.
 2. On the Mac, choose **Tablet Audio** as the input and the output, either in System Settings > Sound or in a single app such as Zoom.
 3. The first time, the tablet asks *Allow USB Audio Bridge to access USB Audio Bridge?*. Tick **Always open USB Audio Bridge when USB Audio Bridge is connected** and tap **OK**. This moves audio onto the faster USB accessory link and is not asked again.
-4. On the tablet, tap **Allow** on the *Keep running with the screen off* banner so battery optimization never pauses the bridge.
+4. On the tablet, tap **Turn off battery limit** on the *Keep running with the screen off* banner and allow it, so battery optimization never pauses the bridge.
 
-The menu bar icon fills in when audio is flowing. Its menu shows the connection, a level meter for each direction, and the round-trip time, with switches for the tablet mic and speaker, **Reconnect Tablet**, **Open at Login**, and **Show Log**.
+The menu bar icon fills in when the tablet is linked. Its menu shows the connection, a level meter for each direction, the round-trip time, and whether echo cancellation is on, with switches for the tablet mic and speaker, **Reconnect Tablet**, **Open at Login**, and **Show Log**.
 
 Open the tablet app when you want its controls: mic and speaker on/off, mic gain, speaker volume, and the tablet's own echo cancellation. Leave that switch off when the Mac already removes echo; it adds about 60 ms.
 
 ## FAQ
 
 **The tablet plays no sound.**
-Check that the Mac app's output is Tablet Audio and that the tablet's media volume is up. The *Speaker* meter in the menu shows whether the Mac is sending anything.
+Check that the Mac app's output is Tablet Audio and that the tablet's media volume is up. The *Speaker* meter in the menu shows whether the Mac is sending anything. If the menu says *Microphone access is off*, choose **Open Microphone Settings…** and allow USB Audio Bridge; the helper needs it to read what Mac apps play.
 
 **Mac apps hear nothing from the tablet.**
-Choose Tablet Audio as the app's input and watch the *Mic* meter in the menu. If the meter moves but the app records silence, allow USB Audio Bridge in System Settings > Privacy & Security > Microphone.
+Choose Tablet Audio as the app's input and watch the *Microphone* meter in the menu. If the meter moves but the app records silence, allow that app in System Settings > Privacy & Security > Microphone.
 
 **After a restart or a long break, Mac sound goes to a Bluetooth speaker instead.**
 When a Bluetooth speaker or headset connects, macOS makes it the input and output on its own, and apps that record from Tablet Audio can then fail to start. Once you have chosen Tablet Audio in System Settings > Sound, the helper puts it back whenever a newly connected device takes over while the tablet is plugged in. If you pick another device yourself, the helper leaves it alone until you choose Tablet Audio again. The helper log shows `default input set back to Tablet Audio`.
 
-**The menu stays on *Waiting for the tablet*.**
-Run `adb devices`. If the tablet shows *unauthorized*, accept the USB debugging prompt on the tablet. If `adb` is missing, the menu says *adb not found*; install it as in step 2.
+**The menu stays on *Waiting for the tablet on USB*.**
+Run `adb devices`. If the tablet shows *unauthorized*, accept the USB debugging prompt on the tablet. If `adb` is missing, the menu says *adb not found*; install it as in step 2. The helper does not search your `PATH`; it looks only in `/opt/homebrew/bin`, `/usr/local/bin`, and the `platform-tools` folder of `~/Library/Android/sdk` or `/opt/homebrew/share/android-commandlinetools`.
 
 **The menu says *Tablet Audio driver is not installed*.**
 Run `driver/build.sh` and `driver/install.sh`.
 
 **The tablet mic shows *busy or blocked*.**
-Choose **Reconnect Tablet** in the menu, or open the tablet app once.
+Close other tablet apps that use the mic, then open the tablet app once with the screen on, or choose **Reconnect Tablet** in the menu.
 
 **The delay feels higher than usual.**
-The tablet may still be on the slower adb link. Unlock the tablet once so it can show the accessory prompt from *First use* step 3, and tick *Always open*. The helper log then shows `aoa: tablet linked`.
+The tablet may still be on the slower adb link. Unlock the tablet once so it can show the accessory prompt from *First use* step 3, and tick *Always open*. The helper log then shows `aoa: tablet linked`. If the prompt goes unanswered, the helper tries again about 10 minutes later.
 
-**"port 47123 is busy".**
-Another copy of the helper is running. Quit it.
+**"Another copy of USB Audio Bridge is already running".**
+Another copy of the helper is running. Quit it, then open the app again. The helper log shows `port 47123 is busy`.
 
 Logs: `~/Library/Logs/UsbAudioBridge/helper.log` on the Mac and `adb logcat -s UsbAudioBridge` for the tablet.
 
@@ -102,15 +102,15 @@ Audio is 48 kHz 16-bit PCM in 5 ms frames. The helper moves it over one of two U
 | USB accessory (AOA) | 84.5 / 88.8 ms | 148 ms |
 | adb | 142.8 / 150.6 ms | 203.5 / 209.5 ms |
 
-The tablet keeps a playback buffer that starts at 10 ms and grows only after a real underrun, and both sides drop surplus that lasts a full second, so the delay does not creep up over long sessions. Measure your own setup with:
+The tablet keeps a playback buffer that starts at 10 ms, grows only after a real underrun, and shrinks again once playback runs smoothly. Both sides drop surplus that lasts a full second, so the delay does not creep up over long sessions. Measure your own setup with:
 
 ```sh
 open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp/loop.txt; cat /tmp/loop.txt
 ```
 
-**Echo cancellation.** What the helper sends to the tablet speaker is the reference, and every mic frame runs through speexdsp's echo canceller and residual echo suppressor. Noise suppression and automatic gain stay off, so your voice is untouched. It runs only while an app records from Tablet Audio and costs about 0.2-0.3 ms of CPU per 5 ms frame, with no extra buffering. On the tablet it lowered the Mac's sound on the Tablet Audio input by 20-31 dB, while a test tone standing in for your voice dropped by only 0.8 dB. Force it with `defaults write com.floweredao.usbaudiobridge.mac aec on` (or `off`); `defaults delete com.floweredao.usbaudiobridge.mac aec` returns to automatic.
+**Echo cancellation.** What the helper sends to the tablet speaker is the reference, and every mic frame runs through speexdsp's echo canceller and residual echo suppressor. Noise suppression and automatic gain stay off, so your voice is untouched. It is applied only while an app records from Tablet Audio (in between, the filter keeps adapting) and costs about 0.2-0.3 ms of CPU per 5 ms frame, with no extra buffering. On the tablet it lowered the Mac's sound on the Tablet Audio input by 20-31 dB, while a test tone standing in for your voice dropped by only 0.8 dB. Force it with `defaults write com.floweredao.usbaudiobridge.mac aec on` (or `off`); `defaults delete com.floweredao.usbaudiobridge.mac aec` returns to automatic.
 
-**Protocol.** Every message is `[type u8][length u32 big-endian][payload]` with types AUDIO (1), PING (2), PONG (3), and HELLO (4). Mic audio is s16le mono and speaker audio is s16le stereo. The accessory identifies itself as manufacturer `floweredao`, model `UsbAudioBridge`. To stay on adb only, run `defaults write com.floweredao.usbaudiobridge.mac aoa -bool false` and restart the helper.
+**Protocol.** Every message is `[type u8][length u32 big-endian][payload]` with types AUDIO (1), PING (2), PONG (3), HELLO (4), and JOIN (5). On adb, the helper greets each connection with HELLO and the tablet answers with JOIN, naming its session and socket. Mic audio is s16le mono and speaker audio is s16le stereo. The accessory identifies itself as manufacturer `floweredao`, model `UsbAudioBridge`. To stay on adb only, run `defaults write com.floweredao.usbaudiobridge.mac aoa -bool false` and restart the helper.
 
 ## Project layout
 
