@@ -128,6 +128,7 @@ final class LaneJoiner {
     typealias OnGroup = (_ group: LaneGroup, _ firstFrame: (type: UInt8, payload: [UInt8])?) -> Void
     private let lock = NSLock()
     private var pending: [UInt32: [Int: Connection]] = [:]
+    private static let maxPendingSessions = 4
     private let onGroup: OnGroup
 
     init(onGroup: @escaping OnGroup) {
@@ -160,6 +161,13 @@ final class LaneJoiner {
                 return
             }
             lock.lock()
+            // Every attempt that never gets all its lanes open leaves a half-joined session behind, and only
+            // a complete session cleared them, so their sockets piled up; past a few, drop the older ones.
+            var evicted: [Connection] = []
+            if pending[session] == nil && pending.count >= Self.maxPendingSessions {
+                evicted = pending.values.flatMap { $0.values }
+                pending.removeAll()
+            }
             var lanes = pending[session] ?? [:]
             let replaced = lanes[lane]
             lanes[lane] = conn
@@ -168,6 +176,7 @@ final class LaneJoiner {
                 pending[session] = lanes
                 lock.unlock()
                 replaced?.close()
+                evicted.forEach { $0.close() }
                 return
             }
             // A complete session supersedes any half-joined older one (its tablet side already gave up).
@@ -176,6 +185,7 @@ final class LaneJoiner {
             pending.removeAll()
             lock.unlock()
             replaced?.close()
+            evicted.forEach { $0.close() }
             stale.forEach { $0.close() }
             onGroup(LaneGroup((0..<count).map { lanes[$0]! }), nil)
         }
