@@ -128,6 +128,7 @@ final class LaneJoiner {
     typealias OnGroup = (_ group: LaneGroup, _ firstFrame: (type: UInt8, payload: [UInt8])?) -> Void
     private let lock = NSLock()
     private var pending: [UInt32: [Int: Connection]] = [:]
+    private static let maxPendingSessions = 4
     private let onGroup: OnGroup
 
     init(onGroup: @escaping OnGroup) {
@@ -142,9 +143,14 @@ final class LaneJoiner {
                 conn.close()
                 return
             }
-            guard frame.type == Wire.join, frame.length >= 6 else {
+            guard frame.type == Wire.join else {
                 // Legacy app: the first frame is already audio or a ping; hand it over unprocessed.
                 onGroup(LaneGroup([conn]), (frame.type, Array(buffer[0..<frame.length])))
+                return
+            }
+            // A JOIN too short to name its session and lane is not a legacy app; it must not replace the link.
+            guard frame.length >= 6 else {
+                conn.close()
                 return
             }
             let session = buffer[0..<4].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
@@ -155,6 +161,13 @@ final class LaneJoiner {
                 return
             }
             lock.lock()
+            // Every attempt that never gets all its lanes open leaves a half-joined session behind, and only
+            // a complete session cleared them, so their sockets piled up; past a few, drop the older ones.
+            var evicted: [Connection] = []
+            if pending[session] == nil && pending.count >= Self.maxPendingSessions {
+                evicted = pending.values.flatMap { $0.values }
+                pending.removeAll()
+            }
             var lanes = pending[session] ?? [:]
             let replaced = lanes[lane]
             lanes[lane] = conn
@@ -163,6 +176,7 @@ final class LaneJoiner {
                 pending[session] = lanes
                 lock.unlock()
                 replaced?.close()
+                evicted.forEach { $0.close() }
                 return
             }
             // A complete session supersedes any half-joined older one (its tablet side already gave up).
@@ -171,6 +185,7 @@ final class LaneJoiner {
             pending.removeAll()
             lock.unlock()
             replaced?.close()
+            evicted.forEach { $0.close() }
             stale.forEach { $0.close() }
             onGroup(LaneGroup((0..<count).map { lanes[$0]! }), nil)
         }

@@ -69,6 +69,19 @@ final class LaneJoinerTests: XCTestCase {
         }
     }
 
+    /// A legacy app never sends JOIN, so a JOIN cut short is not one: taken as a legacy app it would
+    /// replace the working link with a connection that carries no audio.
+    func testATruncatedJoinIsClosedNotTakenForALegacyApp() {
+        let joiner = LaneJoiner { _, _ in XCTFail("no group expected") }
+        let (mac, tablet) = connectionPair()
+        defer { mac.close(); tablet.close() }
+        joiner.accept(mac)
+        var buffer = [UInt8](repeating: 0, count: 16)
+        XCTAssertEqual(tablet.readFrame(into: &buffer)?.type, Wire.hello)
+        XCTAssertTrue(tablet.send(Wire.join, bytes: [0, 0, 0, 42, 0]))
+        XCTAssertTrue(peerClosed(tablet))
+    }
+
     func testLanesThatDisagreeOnTheLaneCountDoNotFormAGroup() {
         let log = GroupLog()
         let grouped = expectation(description: "group")
@@ -97,5 +110,40 @@ final class LaneJoinerTests: XCTestCase {
         let entries = log.all
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries.first?.group.lanes.map { ObjectIdentifier($0) }, [e0, e1].map { ObjectIdentifier($0.mac) })
+    }
+
+    /// The tablet gives up on a session whose lanes do not all open and starts a new one. Each attempt
+    /// left its open lanes pending on the Mac until some session completed, so a tablet that kept failing
+    /// (or anything else on the loopback port) could hold sockets until the helper ran out of them.
+    func testHalfJoinedSessionsDoNotPileUp() {
+        let log = GroupLog()
+        let grouped = expectation(description: "group")
+        let joiner = LaneJoiner { group, first in
+            log.append(group, first)
+            grouped.fulfill()
+        }
+        // Lane 0 joins twice per session: the second closes the first, which shows both JOINs were handled.
+        var stale: [(mac: Connection, tablet: Connection)] = []
+        for session in UInt32(1)...4 {
+            let a = join(joiner, session: session, lane: 0, count: 2)
+            let b = join(joiner, session: session, lane: 0, count: 2)
+            XCTAssertTrue(peerClosedAny([a.tablet, b.tablet]))
+            stale.append(a)
+            stale.append(b)
+        }
+        // A fifth half-joined session closes the four before it.
+        let next0 = join(joiner, session: 5, lane: 0, count: 2)
+        for (i, lane) in stale.enumerated() {
+            XCTAssertTrue(peerClosed(lane.tablet), "lane \(i) of the abandoned sessions is still open")
+        }
+        XCTAssertTrue(log.all.isEmpty)
+
+        // The new session still completes.
+        let next1 = join(joiner, session: 5, lane: 1, count: 2)
+        defer { (stale + [next0, next1]).forEach { $0.mac.close(); $0.tablet.close() } }
+        wait(for: [grouped], timeout: 5)
+        let entries = log.all
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.group.lanes.map { ObjectIdentifier($0) }, [next0, next1].map { ObjectIdentifier($0.mac) })
     }
 }
