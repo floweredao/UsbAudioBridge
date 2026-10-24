@@ -117,4 +117,16 @@ final class BridgeTests: XCTestCase {
         bridge.handleControl(Wire.pong, [1, 2, 3], 3, mac)
         XCTAssertNil(bridge.stats.rttMs)
     }
+
+    /// A PONG echoes a PING timestamp, which is never ahead of the Mac's clock. One that is (garbage from
+    /// the tablet) used to wrap the unsigned difference and show a round trip of about 585 years.
+    func testPongWithATimestampAheadOfTheClockIsIgnored() {
+        let bridge = Bridge()
+        let (mac, tablet) = connectionPair()
+        defer { mac.close(); tablet.close() }
+        let ahead: UInt64 = DispatchTime.now().uptimeNanoseconds + 3_600_000_000_000
+        let payload = withUnsafeBytes(of: ahead.bigEndian) { Array($0) }
+        bridge.handleControl(Wire.pong, payload, payload.count, mac)
+        XCTAssertNil(bridge.stats.rttMs)
+    }
 }
