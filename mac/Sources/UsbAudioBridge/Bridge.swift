@@ -269,7 +269,10 @@ final class Bridge {
             conn.send(Wire.pong, bytes: Array(buffer[0..<length]))
         case Wire.pong where length >= 8:
             let sent = buffer[0..<8].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
-            let rtt = Double(DispatchTime.now().uptimeNanoseconds &- sent) / 1_000_000
+            let now = DispatchTime.now().uptimeNanoseconds
+            // The Mac never sent a timestamp ahead of its clock; the difference would wrap to centuries.
+            guard sent <= now else { break }
+            let rtt = Double(now - sent) / 1_000_000
             lock.lock()
             _stats.rttMs = _stats.rttMs.map { $0 * 0.6 + rtt * 0.4 } ?? rtt
             lock.unlock()
