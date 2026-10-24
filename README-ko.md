@@ -41,7 +41,7 @@ macOS 15 이상인 맥과 안드로이드 8.0 이상인 태블릿이 필요해�
    xattr -dr com.apple.quarantine "/Applications/USB Audio Bridge.app"
    open "/Applications/USB Audio Bridge.app"
    ```
-6. macOS가 **마이크 접근**을 물어보면 허용하세요. 도우미는 Tablet Audio 장치로 태블릿 소리를 읽는데, macOS는 이것도 마이크 사용으로 쳐요.
+6. macOS가 **마이크 접근**을 물어보면 허용하세요. 도우미는 맥 앱이 Tablet Audio로 내보내는 소리를 드라이버의 숨은 포트로 읽는데, macOS는 이것도 마이크 사용으로 쳐요. 허용하지 않으면 태블릿 스피커에서 소리가 나지 않아요.
 7. 태블릿에 앱이 없으면 도우미가 알아서 설치해요. 직접 설치하려면 `adb install -r UsbAudioBridge-*.apk`를 실행하세요.
 
 ## 처음 쓰는 법
@@ -49,37 +49,37 @@ macOS 15 이상인 맥과 안드로이드 8.0 이상인 태블릿이 필요해�
 1. 태블릿을 꽂으세요. 2초쯤 안에 브리지가 백그라운드에서 시작되고, 태블릿 알림 한 줄로 동작 중임을 보여 줘요. 태블릿 화면은 그대로예요.
 2. 맥에서 입력과 출력을 모두 **Tablet Audio**로 고르세요. 시스템 설정 > 사운드에서 바꿔도 되고 Zoom 등 앱 하나에서만 골라도 돼요.
 3. 처음 한 번은 태블릿이 *USB 오디오 브리지 앱이 USB Audio Bridge에 액세스하도록 허용하시겠습니까?*를 물어봐요. **연결되면 항상 USB 오디오 브리지 열기**를 체크하고 **확인**을 누르세요. 그러면 더 빠른 USB 액세서리 연결로 바뀌고, 다시 묻지 않아요.
-4. 태블릿의 *화면이 꺼져도 계속 동작* 안내에서 **허용**을 누르세요. 배터리 최적화 때문에 브리지가 멈추는 일이 없어져요.
+4. 태블릿의 *화면이 꺼져도 계속 동작* 안내에서 **배터리 제한 끄기**를 누르고 허용하세요. 배터리 최적화 때문에 브리지가 멈추는 일이 없어져요.
 
-소리가 오가면 메뉴 막대 아이콘이 채워져요. 메뉴에는 연결 상태, 방향별 레벨, 왕복 시간이 보이고, 태블릿 마이크·스피커 켜기/끄기, **Reconnect Tablet**, **Open at Login**, **Show Log**가 있어요.
+태블릿이 연결되면 메뉴 막대 아이콘이 채워져요. 메뉴에는 연결 상태, 방향별 레벨, 왕복 시간, 에코 제거 상태가 보이고, 태블릿 마이크·스피커 켜기/끄기, **태블릿 다시 연결**, **로그인 시 열기**, **로그 보기**가 있어요.
 
 설정을 바꾸고 싶을 때만 태블릿 앱을 여세요. 마이크·스피커 켜기/끄기, 마이크 증폭, 스피커 볼륨, 태블릿 자체 에코 제거를 바꿀 수 있어요. 맥이 이미 에코를 지우고 있으니 이 스위치는 꺼 두세요. 켜면 지연이 약 60ms 늘어요.
 
 ## 자주 묻는 것
 
 **태블릿에서 소리가 안 나요.**
-맥 앱의 출력이 Tablet Audio인지, 태블릿 미디어 볼륨이 올라가 있는지 확인하세요. 메뉴의 *Speaker* 레벨을 보면 맥이 소리를 보내고 있는지 알 수 있어요.
+맥 앱의 출력이 Tablet Audio인지, 태블릿 미디어 볼륨이 올라가 있는지 확인하세요. 메뉴의 *스피커* 레벨을 보면 맥이 소리를 보내고 있는지 알 수 있어요. 메뉴에 *마이크 접근이 꺼져 있어서*로 시작하는 경고가 보이면 **마이크 설정 열기…**를 눌러 USB 오디오 브리지를 허용하세요. 도우미가 맥 앱 소리를 읽으려면 이 권한이 필요해요.
 
 **맥 앱에 태블릿 소리가 안 들어가요.**
-앱 입력을 Tablet Audio로 고르고 메뉴의 *Mic* 레벨을 보세요. 레벨은 움직이는데 앱에 무음만 녹음되면 시스템 설정 > 개인정보 보호 및 보안 > 마이크에서 USB Audio Bridge를 허용하세요.
+앱 입력을 Tablet Audio로 고르고 메뉴의 *마이크* 레벨을 보세요. 레벨은 움직이는데 앱에 무음만 녹음되면 시스템 설정 > 개인정보 보호 및 보안 > 마이크에서 그 앱을 허용하세요.
 
 **재부팅하거나 오래 쉬고 나면 맥 소리가 블루투스 스피커로 가요.**
 블루투스 스피커나 헤드셋이 붙으면 macOS가 알아서 그 장치를 입력·출력으로 바꿔요. 그러면 Tablet Audio로 녹음하던 앱이 시작에 실패할 수 있어요. 시스템 설정 > 사운드에서 Tablet Audio를 한 번 골라 두면, 태블릿이 꽂혀 있는 동안 새로 붙은 장치가 가져간 자리를 도우미가 Tablet Audio로 되돌려요. 직접 다른 장치를 고르면 다시 Tablet Audio를 고를 때까지 그대로 둬요. 도우미 로그에 `default input set back to Tablet Audio`가 남아요.
 
-**메뉴가 *Waiting for the tablet*에서 안 넘어가요.**
-`adb devices`를 실행해 보세요. *unauthorized*라면 태블릿에 뜬 USB 디버깅 허용 창에서 허용하세요. `adb`가 없으면 메뉴에 *adb not found*가 뜨니 설치 2단계대로 설치하세요.
+**메뉴가 *USB로 태블릿을 기다리는 중*에서 안 넘어가요.**
+`adb devices`를 실행해 보세요. *unauthorized*라면 태블릿에 뜬 USB 디버깅 허용 창에서 허용하세요. `adb`가 없으면 메뉴에 *adb가 없어요*가 뜨니 설치 2단계대로 설치하세요. 도우미는 `PATH`를 뒤지지 않고 `/opt/homebrew/bin`, `/usr/local/bin`, 그리고 `~/Library/Android/sdk`나 `/opt/homebrew/share/android-commandlinetools`의 `platform-tools` 폴더만 봐요.
 
 **메뉴에 *Tablet Audio driver is not installed*가 떠요.**
 `driver/build.sh`와 `driver/install.sh`를 실행하세요.
 
 **태블릿 앱에 "마이크를 쓸 수 없어요"가 떠요.**
-메뉴에서 **Reconnect Tablet**을 누르거나 태블릿 앱을 한 번 여세요.
+태블릿에서 마이크를 쓰는 다른 앱을 닫고, 화면을 켠 채로 태블릿 앱을 한 번 여세요. 메뉴에서 **태블릿 다시 연결**을 눌러도 돼요.
 
 **지연이 평소보다 길어요.**
-태블릿이 아직 느린 adb 연결을 쓰고 있을 수 있어요. 태블릿 잠금을 한 번 풀어 *처음 쓰는 법* 3단계의 허용 창이 뜨게 하고 *항상 열기*를 체크하세요. 그러면 도우미 로그에 `aoa: tablet linked`가 남아요.
+태블릿이 아직 느린 adb 연결을 쓰고 있을 수 있어요. 태블릿 잠금을 한 번 풀어 *처음 쓰는 법* 3단계의 허용 창이 뜨게 하고 *항상 열기*를 체크하세요. 그러면 도우미 로그에 `aoa: tablet linked`가 남아요. 허용 창에 답하지 않으면 도우미가 10분쯤 뒤에 다시 시도해요.
 
-**"port 47123 is busy"가 떠요.**
-도우미가 하나 더 떠 있어요. 하나를 종료하세요.
+**"USB 오디오 브리지가 이미 실행 중이에요"가 떠요.**
+도우미가 하나 더 떠 있어요. 실행 중인 앱을 종료한 뒤 다시 여세요. 도우미 로그에는 `port 47123 is busy`가 남아요.
 
 로그: 맥은 `~/Library/Logs/UsbAudioBridge/helper.log`, 태블릿은 `adb logcat -s UsbAudioBridge`.
 
@@ -102,15 +102,15 @@ macOS 15 이상인 맥과 안드로이드 8.0 이상인 태블릿이 필요해�
 | USB 액세서리(AOA) | 84.5 / 88.8 ms | 148 ms |
 | adb | 142.8 / 150.6 ms | 203.5 / 209.5 ms |
 
-태블릿 재생 버퍼는 10ms에서 시작해 실제로 끊겼을 때만 늘어나고, 양쪽 모두 1초 넘게 남은 여분은 버려요. 그래서 오래 써도 지연이 쌓이지 않아요. 직접 재 보려면 이렇게 하세요.
+태블릿 재생 버퍼는 10ms에서 시작해 실제로 끊겼을 때만 늘어나고 재생이 다시 매끄러워지면 줄어들어요. 양쪽 모두 1초 넘게 남은 여분은 버려요. 그래서 오래 써도 지연이 쌓이지 않아요. 직접 재 보려면 이렇게 하세요.
 
 ```sh
 open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp/loop.txt; cat /tmp/loop.txt
 ```
 
-**에코 제거.** 도우미가 태블릿 스피커로 보낸 소리를 기준 신호로 삼고, 마이크 소리를 조각마다 speexdsp 에코 제거기와 잔향 억제기에 통과시켜요. 잡음 제거와 자동 음량은 꺼 두어서 목소리는 그대로예요. 어떤 앱이 Tablet Audio에서 녹음할 때만 켜지고, 5ms 조각마다 CPU 약 0.2~0.3ms를 쓰며 버퍼를 더 쓰지 않아요. 태블릿에서 재 보니 Tablet Audio 입력의 맥 소리는 20~31dB 줄고, 목소리 자리에 튼 시험음은 0.8dB만 줄었어요. 항상 켜거나 끄려면 `defaults write com.floweredao.usbaudiobridge.mac aec on`(또는 `off`), 자동으로 돌리려면 `defaults delete com.floweredao.usbaudiobridge.mac aec`.
+**에코 제거.** 도우미가 태블릿 스피커로 보낸 소리를 기준 신호로 삼고, 마이크 소리를 조각마다 speexdsp 에코 제거기와 잔향 억제기에 통과시켜요. 잡음 제거와 자동 음량은 꺼 두어서 목소리는 그대로예요. 어떤 앱이 Tablet Audio에서 녹음할 때만 적용되고(그 사이에도 필터는 계속 적응해요), 5ms 조각마다 CPU 약 0.2~0.3ms를 쓰며 버퍼를 더 쓰지 않아요. 태블릿에서 재 보니 Tablet Audio 입력의 맥 소리는 20~31dB 줄고, 목소리 자리에 튼 시험음은 0.8dB만 줄었어요. 항상 켜거나 끄려면 `defaults write com.floweredao.usbaudiobridge.mac aec on`(또는 `off`), 자동으로 돌리려면 `defaults delete com.floweredao.usbaudiobridge.mac aec`.
 
-**프로토콜.** 모든 메시지는 `[type u8][length u32 big-endian][payload]` 형식이고, 종류는 AUDIO(1), PING(2), PONG(3), HELLO(4)예요. 마이크는 s16le 모노, 스피커는 s16le 스테레오예요. 액세서리 이름은 제조사 `floweredao`, 모델 `UsbAudioBridge`예요. adb만 쓰려면 `defaults write com.floweredao.usbaudiobridge.mac aoa -bool false`를 실행하고 도우미를 다시 켜세요.
+**프로토콜.** 모든 메시지는 `[type u8][length u32 big-endian][payload]` 형식이고, 종류는 AUDIO(1), PING(2), PONG(3), HELLO(4), JOIN(5)예요. adb에서는 도우미가 연결마다 HELLO로 인사하고, 태블릿이 JOIN으로 세션과 소켓 번호를 알려요. 마이크는 s16le 모노, 스피커는 s16le 스테레오예요. 액세서리 이름은 제조사 `floweredao`, 모델 `UsbAudioBridge`예요. adb만 쓰려면 `defaults write com.floweredao.usbaudiobridge.mac aoa -bool false`를 실행하고 도우미를 다시 켜세요.
 
 ## 구성
 
