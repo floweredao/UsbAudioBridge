@@ -69,6 +69,19 @@ final class LaneJoinerTests: XCTestCase {
         }
     }
 
+    /// A legacy app never sends JOIN, so a JOIN cut short is not one: taken as a legacy app it would
+    /// replace the working link with a connection that carries no audio.
+    func testATruncatedJoinIsClosedNotTakenForALegacyApp() {
+        let joiner = LaneJoiner { _, _ in XCTFail("no group expected") }
+        let (mac, tablet) = connectionPair()
+        defer { mac.close(); tablet.close() }
+        joiner.accept(mac)
+        var buffer = [UInt8](repeating: 0, count: 16)
+        XCTAssertEqual(tablet.readFrame(into: &buffer)?.type, Wire.hello)
+        XCTAssertTrue(tablet.send(Wire.join, bytes: [0, 0, 0, 42, 0]))
+        XCTAssertTrue(peerClosed(tablet))
+    }
+
     func testLanesThatDisagreeOnTheLaneCountDoNotFormAGroup() {
         let log = GroupLog()
         let grouped = expectation(description: "group")

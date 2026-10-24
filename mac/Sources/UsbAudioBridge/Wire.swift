@@ -142,9 +142,14 @@ final class LaneJoiner {
                 conn.close()
                 return
             }
-            guard frame.type == Wire.join, frame.length >= 6 else {
+            guard frame.type == Wire.join else {
                 // Legacy app: the first frame is already audio or a ping; hand it over unprocessed.
                 onGroup(LaneGroup([conn]), (frame.type, Array(buffer[0..<frame.length])))
+                return
+            }
+            // A JOIN too short to name its session and lane is not a legacy app; it must not replace the link.
+            guard frame.length >= 6 else {
+                conn.close()
                 return
             }
             let session = buffer[0..<4].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
