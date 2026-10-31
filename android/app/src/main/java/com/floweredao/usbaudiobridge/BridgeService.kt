@@ -47,14 +47,19 @@ class BridgeService : Service() {
                 NotificationChannel(CHANNEL, getString(R.string.notif_channel), NotificationManager.IMPORTANCE_LOW),
             )
         }
-        wakeLock = getSystemService(PowerManager::class.java)
+        val lock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UsbAudioBridge:bridge")
-            .apply { setReferenceCounted(false); acquire() }
+            .apply { setReferenceCounted(false) }
+        wakeLock = lock
         scope.launch {
             BridgeState.status
                 .map { it.mic to it.speaker }
                 .distinctUntilChanged()
-                .collect { (m, s) -> nm.notify(NOTIF_ID, buildNotification(m, s)) }
+                .collect { (m, s) ->
+                    nm.notify(NOTIF_ID, buildNotification(m, s))
+                    // Keep the CPU awake only while audio flows; unplugged, the retry loops may sleep.
+                    if (m == LinkState.Connected || s == LinkState.Connected) lock.acquire() else if (lock.isHeld) lock.release()
+                }
         }
     }
 
@@ -84,7 +89,7 @@ class BridgeService : Service() {
         mic = null
         speaker = null
         scope.cancel()
-        wakeLock?.release()
+        wakeLock?.takeIf { it.isHeld }?.release()
         BridgeState.updateStatus {
             it.copy(serviceRunning = false, mic = LinkState.Off, speaker = LinkState.Off,
                 micLevelDb = -90f, speakerLevelDb = -90f, rttMs = null, playbackBufferMs = null)
