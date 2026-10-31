@@ -94,6 +94,16 @@ object Protocol {
     internal fun checkLength(length: Int) {
         if (length < 0 || length > MAX_PAYLOAD) throw IOException("bad frame length $length")
     }
+
+    /**
+     * The Mac sends the speaker only whole stereo frames, PING and PONG. Over the accessory a restart on the Mac side
+     * can leave the stream mid-frame, and PCM read as a header then shows up as an unknown type or a partial frame.
+     */
+    internal fun checkSpeakerFrame(type: Int, length: Int, accessory: Boolean) {
+        if (type == TYPE_AUDIO && length % 4 != 0) throw IOException("AUDIO of $length bytes is not whole stereo frames")
+        // Over adb every lane starts fresh with HELLO, so unknown types stay allowed there for newer Macs.
+        if (accessory && type !in TYPE_AUDIO..TYPE_JOIN) throw IOException("frame type $type: accessory stream out of sync")
+    }
 }
 
 class Lane(val socket: Socket) {
