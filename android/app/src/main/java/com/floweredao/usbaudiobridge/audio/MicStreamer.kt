@@ -30,10 +30,18 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
 
     override fun run() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+        // The recorder of an attempt that could not reach the Mac, kept for the next attempt instead of building
+        // and releasing one every second while the tablet waits.
+        var spare: AudioRecord? = null
+        var spareEchoCancel = false
         while (running) {
             val settings = BridgeState.settings.value
             val permitted = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             BridgeState.updateStatus { it.copy(micPermission = permitted) }
+            if (spare != null && (!settings.micEnabled || !permitted || spareEchoCancel != settings.echoCancel)) {
+                spare.release()
+                spare = null
+            }
             if (!settings.micEnabled || !permitted) {
                 setLink(LinkState.Off)
                 pause(250)
@@ -42,7 +50,7 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
             setLink(LinkState.Waiting)
             AoaLink.open(context)
             // Open the mic before the socket so a blocked mic never flaps the Mac connection.
-            val record = try {
+            val record = spare ?: try {
                 createRecord(settings.echoCancel)
             } catch (e: Exception) {
                 Log.w(TAG, "mic unavailable: ${e.message}")
@@ -50,8 +58,13 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
                 pause(3000)
                 continue
             }
+            spare = null
             try {
                 session(record, settings.echoCancel)
+            } catch (e: NotConnected) {
+                spare = record
+                spareEchoCancel = settings.echoCancel
+                if (running) Log.d(TAG, "mic link: ${e.cause?.javaClass?.simpleName}: ${e.cause?.message}")
             } catch (e: Exception) {
                 if (running) Log.d(TAG, "mic link: ${e.javaClass.simpleName}: ${e.message}")
             } finally {
@@ -63,17 +76,20 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
                 pause(1000)
             }
         }
+        spare?.release()
         // No final setLink(Off): after a quick Stop and Start the new service's thread owns the status, and
         // onDestroy already reset it for this one.
     }
+
+    /** The Mac could not be reached; the recorder was not used and stays with the caller. */
+    private class NotConnected(cause: Exception) : IOException(cause)
 
     private fun session(record: AudioRecord, echoCancel: Boolean) {
         val aoa = AoaLink.current
         val opened = if (aoa != null) emptyList() else try {
             Protocol.openLanes(Protocol.MIC_PORT).also { lanes = it }
         } catch (e: Exception) {
-            record.release()
-            throw e
+            throw NotConnected(e)
         }
         // shutdown() cannot close lanes that were still connecting; a stopped thread must not take over the Mac link.
         if (!running) {
@@ -165,6 +181,7 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
             record.release()
             throw IOException("AudioRecord failed to initialize")
         }
+        Log.d(TAG, "mic recorder created")
         return record
     }
 
