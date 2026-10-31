@@ -82,6 +82,33 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(bridge.micRing.available, 240 - 128)
     }
 
+    /// Plays `seconds` of a tablet that sends a 5 ms frame every 5 ms, except that every `lateEvery`-th frame
+    /// arrives 7.5 ms late. Returns how often playing audio broke off into silence.
+    private func dropouts(seconds: Int, lateEvery: Int) -> Int {
+        let bridge = Bridge()
+        var arrivals: [Int] = []
+        for k in 0..<(seconds * 200) { arrivals.append(k * 240 + (k % lateEvery == lateEvery - 1 ? 360 : 0)) }
+        arrivals.sort()
+        var next = 0, now = 0, count = 0, playing = false
+        while now < seconds * 48_000 {
+            while next < arrivals.count && arrivals[next] <= now { feed(bridge, 240); next += 1 }
+            let out = render(bridge)
+            if out.last == 0.5 { playing = true } else if playing { count += 1; playing = false }
+            now += 128
+        }
+        return count
+    }
+
+    func testASteadyLinkIsStillTrimmedAndNeverDropsOut() {
+        XCTAssertEqual(dropouts(seconds: 20, lateEvery: Int.max), 0)
+    }
+
+    func testALateFrameEveryTwoSecondsDoesNotCauseADropoutAfterEveryTrim() {
+        // Each trim leaves 5 ms, and a frame 7.5 ms late then empties the queue. Trimming again a second
+        // later repeats that; after the first such dropout the trim must hold off.
+        XCTAssertLessThanOrEqual(dropouts(seconds: 20, lateEvery: 400), 2)
+    }
+
     func testPingIsAnsweredWithTheSamePayload() {
         let bridge = Bridge()
         let (mac, tablet) = connectionPair()

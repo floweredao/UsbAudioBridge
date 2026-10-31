@@ -56,6 +56,11 @@ final class Bridge {
     private var micPrimed = false
     private var micWindowMin = Int.max
     private var micWindowFrames = 0
+    // A trim that is followed by a dropout left too little for this link's jitter; trimming then pauses
+    // for this many one-second windows instead of cutting the queue again a second later.
+    private static let micTrimHoldWindows = 10
+    private var micTrimHold = 0
+    private var micTrimmedSinceUnderrun = false
     private let mono = UnsafeMutablePointer<Float>.allocate(capacity: 8192)
 
     // Mac output (Tablet Audio, via the bridge port input), interleaved stereo, 100 ms max.
@@ -358,7 +363,12 @@ final class Bridge {
         micWindowMin = min(micWindowMin, available)
         micWindowFrames += frames
         if micWindowFrames >= 48_000 {
-            if micWindowMin != Int.max && micWindowMin > micTarget / 3 + 240 { micRing.discard(micWindowMin - micTarget / 3) }
+            if micTrimHold > 0 {
+                micTrimHold -= 1
+            } else if micWindowMin != Int.max && micWindowMin > micTarget / 3 + 240 {
+                micRing.discard(micWindowMin - micTarget / 3)
+                micTrimmedSinceUnderrun = true
+            }
             micWindowMin = Int.max
             micWindowFrames = 0
         }
@@ -366,6 +376,8 @@ final class Bridge {
         let got = micRing.read(into: mono, n)
         if got < n {
             micPrimed = false
+            if micTrimmedSinceUnderrun { micTrimHold = Self.micTrimHoldWindows }
+            micTrimmedSinceUnderrun = false
             for i in got..<n { mono[i] = 0 }
         }
         for i in 0..<n {
