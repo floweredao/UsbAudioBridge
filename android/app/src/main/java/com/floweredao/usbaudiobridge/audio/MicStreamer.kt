@@ -63,7 +63,8 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
                 pause(1000)
             }
         }
-        setLink(LinkState.Off)
+        // No final setLink(Off): after a quick Stop and Start the new service's thread owns the status, and
+        // onDestroy already reset it for this one.
     }
 
     private fun session(record: AudioRecord, echoCancel: Boolean) {
@@ -73,6 +74,11 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
         } catch (e: Exception) {
             record.release()
             throw e
+        }
+        // shutdown() cannot close lanes that were still connecting; a stopped thread must not take over the Mac link.
+        if (!running) {
+            record.release()
+            throw IOException("stopped while connecting")
         }
         // Over AOA the speaker streamer owns the single reader and answers PINGs for both directions.
         val pingWriter = aoa?.writer ?: opened[0].writer
