@@ -124,6 +124,7 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
                 val (reader, writer) = audioLanes[lane]
                 try {
                     reader.next()
+                    Protocol.checkSpeakerFrame(reader.type, reader.length, accessory = aoa != null)
                 } catch (e: IOException) {
                     aoa?.close()
                     throw e
