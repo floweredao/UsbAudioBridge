@@ -63,6 +63,11 @@ final class Bridge {
     private let speakerSignal = DispatchSemaphore(value: 0)
 
     // 128-frame (2.7 ms) device I/O on both port directions; the loop test keeps 256 to stay comparable.
+    // The port the audio units run on (nil while stopped) and the number of mic renders, which the
+    // audio watcher uses to notice units that Core Audio stopped driving.
+    private var audioPort: AudioDeviceID?
+    private var renderCount = 0
+
     private lazy var output = OutputUnit(channels: 2, bufferFrames: 128) { [unowned self] out, frames, _ in self.renderMic(out, frames) }
     private lazy var input = InputUnit(channels: 2, bufferFrames: 128) { [unowned self] samples, frames, _ in self.captureSpeaker(samples, frames) }
 
@@ -81,7 +86,7 @@ final class Bridge {
         let speakerJoiner = LaneJoiner { [unowned self] group, _ in self.acceptSpeaker(group) }
         try Server(port: Wire.micPort) { conn in micJoiner.accept(conn) }.start()
         try Server(port: Wire.speakerPort) { conn in speakerJoiner.accept(conn) }.start()
-        startAudio()
+        startThread("audio-watch") { [unowned self] in self.watchAudio() }
         startThread("speaker-send") { [unowned self] in self.sendLoop() }
         startThread("pinger") { [unowned self] in
             while true {
@@ -116,18 +121,56 @@ final class Bridge {
         }
     }
 
-    private func startAudio() {
-        do {
-            guard let port = AudioDevices.find(uid: Self.portUID) else {
-                throw BridgeError.audio("\(Self.deviceName) driver is not installed (driver/install.sh)")
+    /// Starts the audio units once the driver's bridge port exists, and starts them again when Core Audio
+    /// restarts (driver/install.sh does that) or the port goes away and comes back.
+    private func watchAudio() {
+        var checkedRenders = renderCount
+        while true {
+            let renders = renderCount
+            let port = AudioDevices.find(uid: Self.portUID)
+            switch AudioHealth.action(startedOn: audioPort, port: port, rendersSinceCheck: renders &- checkedRenders) {
+            case .none:
+                break
+            case .missing:
+                reportAudio(error: "\(Self.deviceName) driver is not installed (driver/install.sh)")
+            case .start:
+                startAudio(on: port!)
+            case .restart:
+                Log.info("audio stopped (Core Audio restarted or the driver changed); restarting it")
+                stopAudio()
+                if let port { startAudio(on: port) }
             }
+            checkedRenders = renders
+            Thread.sleep(forTimeInterval: 2)
+        }
+    }
+
+    private func startAudio(on port: AudioDeviceID) {
+        do {
             try output.start(device: port)
             try input.start(device: port)
+            audioPort = port
+            reportAudio(error: nil)
             Log.info("audio started: tablet mic -> \(Self.deviceName) input, \(Self.deviceName) output -> tablet speaker")
         } catch {
-            Log.info("audio error: \(error)")
-            lock.lock(); _stats.audioError = "\(error)"; lock.unlock()
+            stopAudio()
+            reportAudio(error: "\(error)")
         }
+    }
+
+    private func stopAudio() {
+        output.stop()
+        input.stop()
+        audioPort = nil
+    }
+
+    /// Shows the error in the menu and logs it once, not on every retry.
+    private func reportAudio(error: String?) {
+        lock.lock()
+        let changed = _stats.audioError != error
+        _stats.audioError = error
+        lock.unlock()
+        if changed, let error { Log.info("audio error: \(error)") }
     }
 
     // MARK: connections
@@ -298,6 +341,7 @@ final class Bridge {
 
     /// Real-time: tablet mic -> Tablet Audio input (mono duplicated to both channels).
     func renderMic(_ out: UnsafeMutablePointer<Float>, _ frames: Int) {
+        renderCount &+= 1
         var available = micRing.available
         if !micPrimed {
             if available >= micTarget { micPrimed = true } else {
@@ -396,5 +440,17 @@ final class Bridge {
         t.name = name
         t.qualityOfService = .userInteractive
         t.start()
+    }
+}
+
+/// What the audio watcher does on each check.
+enum AudioHealth: Equatable {
+    case none, missing, start, restart
+
+    /// `startedOn`: the port the units run on, nil while stopped. `port`: the port Core Audio reports now.
+    /// Units that rendered nothing since the last check were left behind by a Core Audio restart.
+    static func action(startedOn: AudioDeviceID?, port: AudioDeviceID?, rendersSinceCheck: Int) -> AudioHealth {
+        guard let startedOn else { return port == nil ? .missing : .start }
+        return port != startedOn || rendersSinceCheck == 0 ? .restart : .none
     }
 }
