@@ -149,4 +149,10 @@ cd ../mac
 ./scripts/build-app.sh
 ditto "dist/USB Audio Bridge.app" "/Applications/USB Audio Bridge.app"
 open "/Applications/USB Audio Bridge.app"
+
+# 테스트(태블릿이나 오디오 장치 없이 돌아가요)
+swift test                                  # mac/ 에서
+./gradlew testDebugUnitTest                 # android/ 에서
 ```
+
+도구 설치, CI가 확인하는 것, 변경을 보내는 법은 [CONTRIBUTING.md](CONTRIBUTING.md)를 보세요.

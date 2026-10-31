@@ -149,4 +149,10 @@ cd ../mac
 ./scripts/build-app.sh
 ditto "dist/USB Audio Bridge.app" "/Applications/USB Audio Bridge.app"
 open "/Applications/USB Audio Bridge.app"
+
+# Tests (no tablet or audio device needed)
+swift test                                  # in mac/
+./gradlew testDebugUnitTest                 # in android/
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, what CI checks, and how to send a change.
