@@ -45,13 +45,16 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
                 pause(1000)
             }
         }
-        setLink(LinkState.Off)
+        // No final setLink(Off): after a quick Stop and Start the new service's thread owns the status, and
+        // onDestroy already reset it for this one.
     }
 
     private fun session() {
         val aoa = AoaLink.current
         val opened = if (aoa != null) emptyList() else Protocol.openLanes(Protocol.SPEAKER_PORT)
         lanes = opened
+        // shutdown() cannot close lanes that were still connecting; a stopped thread must not take over the Mac link.
+        if (!running) throw IOException("stopped while connecting")
         val pingWriter = aoa?.writer ?: opened[0].writer
         val audioLanes = aoa?.let { listOf(it.reader to it.writer) } ?: opened.drop(1).map { it.reader to it.writer }
         val control = if (aoa != null) null else thread(name = "uab-speaker-ctl", isDaemon = true) {
