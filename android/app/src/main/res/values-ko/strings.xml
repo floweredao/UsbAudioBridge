@@ -34,6 +34,7 @@
     <string name="permission_mic">맥이 이 태블릿의 마이크로 소리를 들어요.</string>
     <string name="permission_notifications">브리지가 도는 동안 알림이 떠요.</string>
     <string name="permission_next">다음 창에서 허용해 주세요.</string>
+    <string name="permission_next_settings">이어서 열리는 설정 화면에서 마이크를 켜 주세요.</string>
     <string name="permission_continue">계속</string>
     <string name="footer_hint">맥에서 입력과 출력 모두 Tablet Audio로 고르세요. USB 연결은 맥 도우미가 자동으로 잡아요.</string>
     <string name="notif_channel">오디오 브리지</string>
