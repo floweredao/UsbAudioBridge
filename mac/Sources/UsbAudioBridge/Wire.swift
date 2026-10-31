@@ -17,10 +17,12 @@ enum Wire {
     static let helloMagic: [UInt8] = Array("UAB1".utf8)
 }
 
-/// One accepted TCP connection. Writes are serialized; close() unblocks a reader.
+/// One accepted TCP connection. Writes are serialized; close() unblocks a reader and a writer.
 final class Connection {
     let fd: Int32
     private let lock = NSLock()
+    /// Held for a whole frame write. Separate from `lock` so close() never waits behind a write blocked on a full socket.
+    private let writeLock = NSLock()
     private var isClosed = false
 
     init(fd: Int32) {
@@ -34,8 +36,8 @@ final class Connection {
 
     @discardableResult
     func send(_ type: UInt8, _ payload: UnsafeRawBufferPointer) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        if isClosed { return false }
+        writeLock.lock(); defer { writeLock.unlock() }
+        if closed { return false }
         var header = [UInt8](repeating: 0, count: 5)
         header[0] = type
         let length = UInt32(payload.count)
@@ -71,11 +73,16 @@ final class Connection {
     }
 
     func close() {
-        lock.lock(); defer { lock.unlock() }
-        guard !isClosed else { return }
+        lock.lock()
+        guard !isClosed else { lock.unlock(); return }
         isClosed = true
+        lock.unlock()
+        // shutdown() makes a blocked read or write return at once; the descriptor is released only after
+        // that write has let go of it, so it is never reused under a writer.
         Darwin.shutdown(fd, SHUT_RDWR)
+        writeLock.lock()
         Darwin.close(fd)
+        writeLock.unlock()
     }
 
     private func writeAll(_ buffer: UnsafeRawBufferPointer) -> Bool {
