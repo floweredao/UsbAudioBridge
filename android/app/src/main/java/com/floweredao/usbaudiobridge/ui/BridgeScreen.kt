@@ -286,7 +286,8 @@ private fun InfoStrip(status: Status, usbPlugged: Boolean) {
     val dash = "—"
     FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         InfoChip(Icons.Rounded.Usb, stringResource(R.string.info_cable),
-            stringResource(if (usbPlugged) R.string.cable_plugged else R.string.cable_unplugged))
+            // A USB-C port that negotiates Power Delivery reports AC, not USB; a live link proves the cable is there.
+            stringResource(if (usbPlugged || status.mic == LinkState.Connected || status.speaker == LinkState.Connected) R.string.cable_plugged else R.string.cable_unplugged))
         InfoChip(Icons.Rounded.Speed, stringResource(R.string.info_rtt),
             status.rttMs?.let { "%.1f ms".format(it) } ?: dash)
         InfoChip(Icons.Rounded.Timer, stringResource(R.string.info_latency),
