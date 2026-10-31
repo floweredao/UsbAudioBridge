@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.IntentCompat
 import com.floweredao.usbaudiobridge.audio.AoaLink
 import com.floweredao.usbaudiobridge.audio.BridgeState
 import com.floweredao.usbaudiobridge.ui.BridgeScreen
@@ -92,12 +93,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openAccessory(intent: Intent?) {
-        val accessory = if (Build.VERSION.SDK_INT >= 33) {
-            intent?.getParcelableExtra(UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent?.getParcelableExtra(UsbManager.EXTRA_ACCESSORY)
-        }
+        // IntentCompat avoids the typed overload's Android 13 bug.
+        val accessory = intent?.let { IntentCompat.getParcelableExtra(it, UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java) }
         // The user opened the app, so this is the one place allowed to show the accessory permission prompt.
         AoaLink.open(this, accessory, ask = true)
     }
@@ -117,8 +114,8 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("BatteryLife")
     private fun requestBatteryExemption() {
         val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
-        runCatching { startActivity(intent) }.onFailure {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
+        // Some builds have neither screen; tapping the button must not crash the app.
+        runCatching { startActivity(intent) }
+            .recoverCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
     }
 }
