@@ -12,7 +12,7 @@ Thanks for helping with USB Audio Bridge. This page covers how to build each par
 
 ## Toolchain
 
-- Xcode 16 or newer (Swift 6).
+- Xcode 16 or newer (Swift 6). `swift test` needs Xcode's toolchain; with only the Command Line Tools selected it stops at `unable to resolve module dependency: 'XCTest'`. Either select Xcode (`sudo xcode-select -s /Applications/Xcode.app`) or run the tests as `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`.
 - CMake for the driver (`brew install cmake`).
 - JDK 17 and Android SDK 35 for the tablet app. With Homebrew:
 
