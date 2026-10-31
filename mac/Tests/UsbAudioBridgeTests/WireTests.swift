@@ -85,6 +85,29 @@ final class WireTests: XCTestCase {
         mac.close() // closing twice is harmless
     }
 
+    func testCloseDoesNotWaitForAWriteBlockedOnAFullSocket() {
+        let (mac, tablet) = connectionPair()
+        defer { tablet.close() }
+        var small: Int32 = 4096
+        setsockopt(mac.fd, SOL_SOCKET, SO_SNDBUF, &small, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(tablet.fd, SOL_SOCKET, SO_RCVBUF, &small, socklen_t(MemoryLayout<Int32>.size))
+        // The tablet never reads, so a frame much larger than the socket buffers blocks its writer for good.
+        let sendFailed = expectation(description: "the blocked send returns false")
+        DispatchQueue.global().async {
+            if !mac.send(Wire.audio, bytes: [UInt8](repeating: 0x22, count: Wire.maxPayload)) { sendFailed.fulfill() }
+        }
+        // Data reaching the tablet means the writer is inside send() and cannot finish.
+        var ready = pollfd(fd: tablet.fd, events: Int16(POLLIN), revents: 0)
+        XCTAssertEqual(poll(&ready, 1, 2000), 1, "the writer started")
+
+        let closed = expectation(description: "close() returns")
+        DispatchQueue.global().async {
+            mac.close()
+            closed.fulfill()
+        }
+        wait(for: [closed, sendFailed], timeout: 2)
+    }
+
     func testAudioLanesSkipTheControlLaneOnlyWhenThereIsOne() {
         let pairs = (0..<3).map { _ in connectionPair() }
         defer { pairs.forEach { $0.mac.close(); $0.tablet.close() } }
