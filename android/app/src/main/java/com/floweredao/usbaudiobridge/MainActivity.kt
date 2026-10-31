@@ -26,10 +26,22 @@ import com.floweredao.usbaudiobridge.audio.BridgeState
 import com.floweredao.usbaudiobridge.ui.BridgeScreen
 import com.floweredao.usbaudiobridge.ui.BridgeTheme
 
+private const val MIC_ASKED = "micAsked"
+
 class MainActivity : ComponentActivity() {
     private val batteryUnrestricted = mutableStateOf(true)
     /** Permissions waiting for the user to read why they are asked before Android shows its prompt. */
     private val pendingPermissions = mutableStateOf<List<String>>(emptyList())
+
+    private val prefs by lazy { getSharedPreferences("ui", MODE_PRIVATE) }
+
+    /**
+     * After the mic was refused for good, Android answers a request at once without a prompt. A first request
+     * looks the same (no rationale either), so the app remembers that it has asked before.
+     */
+    private fun micDeniedForGood() = prefs.getBoolean(MIC_ASKED, false) &&
+        checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED &&
+        !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         // Restart so the foreground service picks up the microphone type once access is granted.
@@ -55,9 +67,15 @@ class MainActivity : ComponentActivity() {
                 )
                 val pending = pendingPermissions.value
                 if (pending.isNotEmpty()) {
-                    val ask = {
+                    val toSettings = Manifest.permission.RECORD_AUDIO in pending && micDeniedForGood()
+                    val ask: () -> Unit = {
                         pendingPermissions.value = emptyList()
-                        permissions.launch(pending.toTypedArray())
+                        if (toSettings) {
+                            runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
+                        } else {
+                            prefs.edit().putBoolean(MIC_ASKED, true).apply()
+                            permissions.launch(pending.toTypedArray())
+                        }
                     }
                     AlertDialog(
                         onDismissRequest = ask,
@@ -67,7 +85,7 @@ class MainActivity : ComponentActivity() {
                             Text(buildList {
                                 if (Manifest.permission.RECORD_AUDIO in pending) add(stringResource(R.string.permission_mic))
                                 if (Manifest.permission.POST_NOTIFICATIONS in pending) add(stringResource(R.string.permission_notifications))
-                                add(stringResource(R.string.permission_next))
+                                add(stringResource(if (toSettings) R.string.permission_next_settings else R.string.permission_next))
                             }.joinToString(" "))
                         },
                     )
@@ -81,6 +99,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         batteryUnrestricted.value = isBatteryUnrestricted()
+        // Back from Settings with the mic allowed: restart the running service so it takes the microphone type.
+        if (BridgeState.status.value.serviceRunning) BridgeService.start(this)
     }
 
     private fun isBatteryUnrestricted() =

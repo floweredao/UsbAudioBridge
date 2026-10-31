@@ -34,6 +34,7 @@
     <string name="permission_mic">The Mac hears you through this tablet\'s microphone.</string>
     <string name="permission_notifications">A notification shows while the bridge is running.</string>
     <string name="permission_next">Allow access on the next screen.</string>
+    <string name="permission_next_settings">Turn on the microphone in the Settings screen that opens next.</string>
     <string name="permission_continue">Continue</string>
     <string name="footer_hint">On the Mac, choose Tablet Audio as the input and the output. The Mac helper sets up the USB link automatically.</string>
     <string name="notif_channel">Audio bridge</string>
