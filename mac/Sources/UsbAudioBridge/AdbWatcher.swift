@@ -19,8 +19,9 @@ final class AdbWatcher {
     private var forceSetup = false
     /// Set by the app delegate: true while the tablet app has at least one live audio socket.
     var isStreaming: () -> Bool = { false }
-    private var idleSince: Date?
-    private var lastRelaunch = Date.distantPast
+    /// Set by the app delegate: false while both menu switches are off, so no socket is expected.
+    var wantsAudio: () -> Bool = { true }
+    private var idle = IdleRelaunch()
     let adbPath: String? = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return ["/opt/homebrew/bin/adb", "/usr/local/bin/adb", "\(home)/Library/Android/sdk/platform-tools/adb",
@@ -123,17 +124,7 @@ final class AdbWatcher {
 
     /// The app can die without the cable moving (update, force stop, low memory); bring it back.
     private func relaunchIfIdle(_ serial: String) {
-        if isStreaming() {
-            idleSince = nil
-            return
-        }
-        let now = Date()
-        guard let since = idleSince else {
-            idleSince = now
-            return
-        }
-        guard now.timeIntervalSince(since) > 10, now.timeIntervalSince(lastRelaunch) > 15 else { return }
-        lastRelaunch = now
+        guard idle.due(streaming: isStreaming(), wantsAudio: wantsAudio(), now: Date()) else { return }
         Log.info("no audio from \(serial) for 10 s; relaunching the app")
         _ = adb(["-s", serial, "shell", "pm", "grant", Self.package, "android.permission.RECORD_AUDIO"])
         launch(serial)
@@ -164,6 +155,27 @@ final class AdbWatcher {
         let a = adb(["-s", serial, "reverse", "tcp:\(Wire.micPort)", "tcp:\(Wire.micPort)"]).0
         let b = adb(["-s", serial, "reverse", "tcp:\(Wire.speakerPort)", "tcp:\(Wire.speakerPort)"]).0
         return a == 0 && b == 0
+    }
+
+    /// When to bring the tablet app back: after 10 s without an audio socket, at most every 15 s.
+    /// Both switches off means no socket on purpose, so that never counts as idle.
+    struct IdleRelaunch {
+        private var idleSince: Date?
+        private var lastRelaunch = Date.distantPast
+
+        mutating func due(streaming: Bool, wantsAudio: Bool, now: Date) -> Bool {
+            guard !streaming, wantsAudio else {
+                idleSince = nil
+                return false
+            }
+            guard let since = idleSince else {
+                idleSince = now
+                return false
+            }
+            guard now.timeIntervalSince(since) > 10, now.timeIntervalSince(lastRelaunch) > 15 else { return false }
+            lastRelaunch = now
+            return true
+        }
     }
 
     /// Runs adb with a deadline. When two adb server starts race, the losing `fork-server` can hang
