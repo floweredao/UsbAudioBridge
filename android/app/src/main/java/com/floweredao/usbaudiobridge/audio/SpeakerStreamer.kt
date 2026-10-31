@@ -131,8 +131,7 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
                 if (lastArrival != 0L) maxGapMs = maxOf(maxGapMs, arrival - lastArrival)
                 lastArrival = arrival
 
-                val played = track.playbackHeadPosition.toLong() and 0xffffffffL
-                val queuedMs = (written - played).coerceAtLeast(0) * 1000f / Protocol.SAMPLE_RATE
+                val queuedMs = queuedFrames(written, track.playbackHeadPosition) * 1000f / Protocol.SAMPLE_RATE
                 val backlogMs = audioLanes.sumOf { it.first.backlog() }.toFloat() / BYTES_PER_MS
                 val bufferMs = queuedMs + backlogMs
                 if (track.underrunCount != underruns) {
@@ -216,3 +215,11 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
         private const val SHRINK_AFTER_MS = 5000L
     }
 }
+
+/**
+ * Frames written to the track but not yet played. [playbackHead] is the track's frame counter, which wraps
+ * every 2^32 frames (24 h 51 min at 48 kHz), so the gap is measured in 32-bit arithmetic: that wraps with it
+ * as long as the real gap stays under 2^31 frames, which a bounded playback buffer guarantees.
+ */
+internal fun queuedFrames(written: Long, playbackHead: Int): Long =
+    (written.toInt() - playbackHead).coerceAtLeast(0).toLong()
