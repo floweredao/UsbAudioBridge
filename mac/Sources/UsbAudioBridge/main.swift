@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let s = bridge.stats
             return s.micConnected || s.speakerConnected
         }
+        adb.wantsAudio = { [bridge] in bridge.micEnabled || bridge.speakerEnabled }
         Log.info("USB Audio Bridge helper starting")
         // A background bridge is only useful if it survives a reboot: turn on Open at Login once, on the
         // first launch; after that the menu toggle is the user's choice.

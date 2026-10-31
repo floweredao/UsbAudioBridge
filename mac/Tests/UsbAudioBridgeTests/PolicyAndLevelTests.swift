@@ -36,6 +36,30 @@ final class DefaultKeeperPolicyTests: XCTestCase {
     }
 }
 
+final class IdleRelaunchTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_000_000)
+
+    /// Seconds (polled every 2 s over 60 s) at which the app would be relaunched.
+    private func relaunches(streaming: Bool = false, wantsAudio: Bool) -> [Int] {
+        var idle = AdbWatcher.IdleRelaunch()
+        return stride(from: 0, through: 60, by: 2).filter {
+            idle.due(streaming: streaming, wantsAudio: wantsAudio, now: t0.addingTimeInterval(TimeInterval($0)))
+        }
+    }
+
+    func testAnIdleAppIsRelaunchedAfter10sAndThenEvery15s() {
+        XCTAssertEqual(relaunches(wantsAudio: true), [12, 28, 44, 60])
+    }
+
+    func testNothingIsRelaunchedWhileStreaming() {
+        XCTAssertEqual(relaunches(streaming: true, wantsAudio: true), [])
+    }
+
+    func testNothingIsRelaunchedWhileBothSwitchesAreOff() {
+        XCTAssertEqual(relaunches(wantsAudio: false), [])
+    }
+}
+
 final class LevelAndEchoTests: XCTestCase {
     private func level(_ samples: [Float]) -> Float {
         samples.withUnsafeBufferPointer { levelDb($0.baseAddress!, samples.count) }
