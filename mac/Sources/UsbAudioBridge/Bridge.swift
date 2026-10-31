@@ -27,13 +27,16 @@ final class Bridge {
     private var echoApply = false
     private var micConn: LaneGroup?
     private var speakerConn: LaneGroup?
+    private var accessoryGroup: LaneGroup?
     private var _stats = Stats()
 
     var micEnabled: Bool {
         get { UserDefaults.standard.object(forKey: "micEnabled") as? Bool ?? true }
         set {
             UserDefaults.standard.set(newValue, forKey: "micEnabled")
-            if !newValue { swapMic(nil) }
+            guard !newValue else { return }
+            // Over the accessory the reader checks the switch per frame, so drop the queue but keep the link.
+            if accessoryLinked { micRing.clear(); echo.reset() } else { swapMic(nil) }
         }
     }
 
@@ -41,7 +44,8 @@ final class Bridge {
         get { UserDefaults.standard.object(forKey: "speakerEnabled") as? Bool ?? true }
         set {
             UserDefaults.standard.set(newValue, forKey: "speakerEnabled")
-            if !newValue { swapSpeaker(nil) }
+            guard !newValue else { return }
+            if accessoryLinked { speakerRing.clear() } else { swapSpeaker(nil) }
         }
     }
 
@@ -128,6 +132,13 @@ final class Bridge {
 
     // MARK: connections
 
+    /// True while the tablet is linked over the USB accessory, where one connection carries both directions:
+    /// closing it for one switch would end the other one as well, and the tablet never reconnects by itself.
+    private var accessoryLinked: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return accessoryGroup != nil
+    }
+
     private func current(_ key: ReferenceWritableKeyPath<Bridge, LaneGroup?>) -> LaneGroup? {
         lock.lock(); defer { lock.unlock() }
         return self[keyPath: key]
@@ -150,13 +161,14 @@ final class Bridge {
     /// the PINGs that keep the speaker side alive, and keeps reading even while the mic is switched off.
     func acceptAoa(_ conn: Connection) {
         let group = LaneGroup([conn])
-        swapSpeaker(speakerEnabled ? group : nil)
+        lock.lock(); accessoryGroup = group; lock.unlock()
+        // Both directions read their switch while running, so attach both and let them decide per frame.
+        swapSpeaker(group)
         acceptMic(group, nil, viaAccessory: true)
     }
 
     private func acceptMic(_ group: LaneGroup, _ first: (type: UInt8, payload: [UInt8])?, viaAccessory: Bool = false) {
-        let keepAudio = micEnabled
-        guard keepAudio || viaAccessory else { group.close(); return }
+        guard micEnabled || viaAccessory else { group.close(); return }
         swapMic(group)
         Log.info(viaAccessory ? "tablet linked over USB accessory (mic + speaker)" : "tablet mic connected (\(group.lanes.count) lanes)")
         if group.lanes.count > 1 { watchControl(group, "mic-ctl") }
@@ -189,7 +201,7 @@ final class Bridge {
                     if lastArrival != 0 { maxGap = max(maxGap, arrival - lastArrival) }
                     lastArrival = arrival
                     let n = frame.length / 2
-                    guard keepAudio else { break }
+                    guard self.micEnabled else { break }
                     buffer.withUnsafeMutableBytes { raw in
                         let pcm = raw.baseAddress!.assumingMemoryBound(to: Int16.self)
                         if self.current(\.speakerConn) != nil {
@@ -225,6 +237,7 @@ final class Bridge {
             let wasCurrent = self.micConn === group
             if wasCurrent { self.micConn = nil; self._stats.micLevelDb = -90 }
             if self.speakerConn === group { self.speakerConn = nil; self._stats.speakerLevelDb = -90 }
+            if self.accessoryGroup === group { self.accessoryGroup = nil }
             self.lock.unlock()
             group.close()
             if wasCurrent { Log.info("tablet mic disconnected") }
@@ -334,7 +347,7 @@ final class Bridge {
         var droppedChunks = 0
         while true {
             _ = speakerSignal.wait(timeout: .now() + .milliseconds(100))
-            guard let group = current(\.speakerConn) else {
+            guard speakerEnabled, let group = current(\.speakerConn) else {
                 speakerRing.clear()
                 continue
             }
