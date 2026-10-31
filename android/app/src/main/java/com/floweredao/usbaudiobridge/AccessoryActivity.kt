@@ -3,8 +3,8 @@ package com.floweredao.usbaudiobridge
 import android.app.Activity
 import android.hardware.usb.UsbAccessory
 import android.hardware.usb.UsbManager
-import android.os.Build
 import android.os.Bundle
+import androidx.core.content.IntentCompat
 import com.floweredao.usbaudiobridge.audio.AoaLink
 
 /**
@@ -16,12 +16,8 @@ import com.floweredao.usbaudiobridge.audio.AoaLink
 class AccessoryActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val accessory = if (Build.VERSION.SDK_INT >= 33) {
-            intent?.getParcelableExtra(UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent?.getParcelableExtra(UsbManager.EXTRA_ACCESSORY)
-        }
+        // IntentCompat avoids the typed overload's Android 13 bug, which would crash the accessory hand-off.
+        val accessory = intent?.let { IntentCompat.getParcelableExtra(it, UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java) }
         if (accessory != null) AoaLink.open(applicationContext, accessory)
         finish()
     }

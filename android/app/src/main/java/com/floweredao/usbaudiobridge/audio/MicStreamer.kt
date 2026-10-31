@@ -164,9 +164,17 @@ class MicStreamer(private val context: Context) : Thread("uab-mic") {
 
     private fun attachEffects(sessionId: Int): List<AudioEffect> {
         val list = mutableListOf<AudioEffect>()
-        if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(sessionId)?.let { it.enabled = true; list += it }
-        if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(sessionId)?.let { it.enabled = true; list += it }
-        return list
+        // This runs outside the session's try/finally: an effect that fails to enable must release what was
+        // created so far, or the AudioRecord and the effects leak and the mic stays "busy".
+        return try {
+            if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(sessionId)?.also { list += it }?.enabled = true
+            if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(sessionId)?.also { list += it }?.enabled = true
+            list
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "echo effects unavailable: ${e.message}")
+            list.forEach { it.release() }
+            emptyList()
+        }
     }
 
     private fun applyGain(bytes: ByteArray, length: Int, gain: Float) {
