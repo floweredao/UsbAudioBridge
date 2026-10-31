@@ -36,6 +36,26 @@ final class DefaultKeeperPolicyTests: XCTestCase {
     }
 }
 
+final class SwitchGateTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_000_000)
+
+    func testARefusedReadinessCheckWaitsBeforeRunningAgain() {
+        var gate = AoaTransport.SwitchGate()
+        var checks = 0
+        for second in 0..<60 {
+            let switched = gate.shouldSwitch(now: t0.addingTimeInterval(TimeInterval(second)), wait: 5) { checks += 1; return false }
+            XCTAssertFalse(switched)
+        }
+        XCTAssertEqual(checks, 6, "one adb readiness check per 10 s, not one per 1 s poll")
+    }
+
+    func testAnAcceptedCheckSwitchesOnceThenWaitsTheRetryInterval() {
+        var gate = AoaTransport.SwitchGate()
+        let switches = (0..<60).filter { gate.shouldSwitch(now: t0.addingTimeInterval(TimeInterval($0)), wait: 25) { true } }
+        XCTAssertEqual(switches, [0, 26, 52])
+    }
+}
+
 final class LevelAndEchoTests: XCTestCase {
     private func level(_ samples: [Float]) -> Float {
         samples.withUnsafeBufferPointer { levelDb($0.baseAddress!, samples.count) }
