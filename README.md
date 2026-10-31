@@ -81,7 +81,7 @@ The tablet may still be on the slower adb link. Unlock the tablet once so it can
 **"Another copy of USB Audio Bridge is already running".**
 Another copy of the helper is running. Quit it, then open the app again. The helper log shows `port 47123 is busy`.
 
-Logs: `~/Library/Logs/UsbAudioBridge/helper.log` on the Mac and `adb logcat -s UsbAudioBridge` for the tablet.
+Logs: `~/Library/Logs/UsbAudioBridge/helper.log` on the Mac (at 1 MB it moves to `helper.log.1`) and `adb logcat -s UsbAudioBridge` for the tablet.
 
 ## How it works
 

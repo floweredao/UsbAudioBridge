@@ -81,7 +81,7 @@ macOS 15 이상인 맥과 안드로이드 8.0 이상인 태블릿이 필요해�
 **"USB 오디오 브리지가 이미 실행 중이에요"가 떠요.**
 도우미가 하나 더 떠 있어요. 실행 중인 앱을 종료한 뒤 다시 여세요. 도우미 로그에는 `port 47123 is busy`가 남아요.
 
-로그: 맥은 `~/Library/Logs/UsbAudioBridge/helper.log`, 태블릿은 `adb logcat -s UsbAudioBridge`.
+로그: 맥은 `~/Library/Logs/UsbAudioBridge/helper.log`(1MB가 되면 `helper.log.1`로 옮겨져요), 태블릿은 `adb logcat -s UsbAudioBridge`.
 
 ## 동작 방식
 
