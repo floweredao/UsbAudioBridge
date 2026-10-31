@@ -49,6 +49,12 @@ final class Connection {
         return ok
     }
 
+    /// Makes a blocked read give up after `seconds`; 0 waits for ever.
+    func setReadTimeout(_ seconds: TimeInterval) {
+        var value = timeval(tv_sec: Int(seconds), tv_usec: Int32((seconds - seconds.rounded(.down)) * 1_000_000))
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &value, socklen_t(MemoryLayout<timeval>.size))
+    }
+
     /// Bytes written but not yet taken by the peer (SO_NWRITE).
     var unsentBytes: Int {
         var value: Int32 = 0
@@ -137,8 +143,11 @@ final class LaneJoiner {
     private var pending: [UInt32: [Int: Connection]] = [:]
     private static let maxPendingSessions = 4
     private let onGroup: OnGroup
+    /// A connection that sends nothing this long after HELLO is closed, so it cannot hold a thread and a socket.
+    private let joinTimeout: TimeInterval
 
-    init(onGroup: @escaping OnGroup) {
+    init(joinTimeout: TimeInterval = 5, onGroup: @escaping OnGroup) {
+        self.joinTimeout = joinTimeout
         self.onGroup = onGroup
     }
 
@@ -146,10 +155,12 @@ final class LaneJoiner {
         conn.send(Wire.hello, bytes: Wire.helloMagic)
         let thread = Thread { [self] in
             var buffer = [UInt8](repeating: 0, count: 256)
+            conn.setReadTimeout(joinTimeout)
             guard let frame = conn.readFrame(into: &buffer) else {
                 conn.close()
                 return
             }
+            conn.setReadTimeout(0)
             guard frame.type == Wire.join else {
                 // Legacy app: the first frame is already audio or a ping; hand it over unprocessed.
                 onGroup(LaneGroup([conn]), (frame.type, Array(buffer[0..<frame.length])))
@@ -232,7 +243,11 @@ final class Server {
         let thread = Thread { [onAccept] in
             while true {
                 let client = accept(fd, nil, nil)
-                if client < 0 { continue }
+                if client < 0 {
+                    // Out of descriptors the call fails at once until one is freed; wait instead of spinning.
+                    if errno == EMFILE || errno == ENFILE { Thread.sleep(forTimeInterval: 0.1) }
+                    continue
+                }
                 var one: Int32 = 1
                 setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, socklen_t(MemoryLayout<Int32>.size))
                 setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))

@@ -15,6 +15,40 @@ final class LaneJoinerTests: XCTestCase {
         return pair
     }
 
+    func testAConnectionThatNeverAnswersHelloIsClosed() {
+        let joiner = LaneJoiner(joinTimeout: 0.2) { _, _ in XCTFail("a silent connection must not become a group") }
+        let pair = connectionPair()
+        defer { pair.tablet.close() }
+        joiner.accept(pair.mac)
+        var buffer = [UInt8](repeating: 0, count: 16)
+        XCTAssertEqual(pair.tablet.readFrame(into: &buffer)?.type, Wire.hello)
+        XCTAssertTrue(peerClosed(pair.tablet, timeout: 2), "the helper hangs up on a connection that stays silent")
+    }
+
+    func testTheJoinDeadlineEndsOnceTheFirstFrameArrives() {
+        let log = GroupLog()
+        let grouped = expectation(description: "group")
+        let joiner = LaneJoiner(joinTimeout: 0.2) { group, first in
+            log.append(group, first)
+            grouped.fulfill()
+        }
+        let pair = connectionPair()
+        defer { pair.mac.close(); pair.tablet.close() }
+        joiner.accept(pair.mac)
+        XCTAssertTrue(pair.tablet.send(Wire.ping, bytes: [UInt8](repeating: 0, count: 8)))
+        wait(for: [grouped], timeout: 2)
+
+        // The deadline is the behaviour under test: a later read must outlast it.
+        let later = expectation(description: "a frame sent after the deadline still arrives")
+        DispatchQueue.global().async {
+            var buffer = [UInt8](repeating: 0, count: 16)
+            if log.all[0].group.lanes[0].readFrame(into: &buffer)?.type == Wire.audio { later.fulfill() }
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(pair.tablet.send(Wire.audio, bytes: [1, 2]))
+        wait(for: [later], timeout: 2)
+    }
+
     func testLanesFormOneGroupInLaneOrderWhateverOrderTheyJoin() {
         let log = GroupLog()
         let grouped = expectation(description: "group")
