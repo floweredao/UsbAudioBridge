@@ -112,6 +112,15 @@ open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp
 
 **프로토콜.** 모든 메시지는 `[type u8][length u32 big-endian][payload]` 형식이고, 종류는 AUDIO(1), PING(2), PONG(3), HELLO(4), JOIN(5)예요. adb에서는 도우미가 연결마다 HELLO로 인사하고, 태블릿이 JOIN으로 세션과 소켓 번호를 알려요. 마이크는 s16le 모노, 스피커는 s16le 스테레오예요. 액세서리 이름은 제조사 `floweredao`, 모델 `UsbAudioBridge`예요. adb만 쓰려면 `defaults write com.floweredao.usbaudiobridge.mac aoa -bool false`를 실행하고 도우미를 다시 켜세요.
 
+**설정.** 도우미는 `com.floweredao.usbaudiobridge.mac` defaults 도메인에서 아래 키를 읽어요(`defaults write com.floweredao.usbaudiobridge.mac <키> <값>`). 바꾼 뒤에는 도우미를 다시 켜고, 기본값으로 돌리려면 `defaults delete`를 쓰세요.
+
+| 키 | 기본값 | 하는 일 |
+| --- | --- | --- |
+| `aec` | 자동 | `on`이나 `off`로 맥의 에코 제거를 고정해요. 자동이면 앱이 Tablet Audio에서 녹음할 때만 적용해요. |
+| `aoa` | `true` | `false`면 태블릿을 액세서리 모드로 바꾸지 않고 adb 연결만 써요. |
+| `aecSuppress` | `-40` | 맥 소리만 날 때의 잔향 억제(dB). 낮을수록 에코를 더 지워요. |
+| `aecSuppressActive` | `-15` | 맥 소리 위로 말할 때의 잔향 억제(dB). 낮을수록 에코를 더 지우지만 목소리도 작아져요. |
+
 ## 구성
 
 | 폴더 | 내용 |
@@ -131,7 +140,7 @@ driver/install.sh
 
 # 안드로이드 앱
 cd android
-echo "sdk.dir=/opt/homebrew/share/android-commandlinetools" > local.properties
+echo "sdk.dir=$(brew --prefix)/share/android-commandlinetools" > local.properties
 JAVA_HOME=$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home ./gradlew assembleRelease
 adb install -r app/build/outputs/apk/release/app-release.apk
 

@@ -112,6 +112,15 @@ open -n -W "/Applications/USB Audio Bridge.app" --args --loop-test 10 --out /tmp
 
 **Protocol.** Every message is `[type u8][length u32 big-endian][payload]` with types AUDIO (1), PING (2), PONG (3), HELLO (4), and JOIN (5). On adb, the helper greets each connection with HELLO and the tablet answers with JOIN, naming its session and socket. Mic audio is s16le mono and speaker audio is s16le stereo. The accessory identifies itself as manufacturer `floweredao`, model `UsbAudioBridge`. To stay on adb only, run `defaults write com.floweredao.usbaudiobridge.mac aoa -bool false` and restart the helper.
 
+**Settings.** The helper reads these keys from the `com.floweredao.usbaudiobridge.mac` defaults domain (`defaults write com.floweredao.usbaudiobridge.mac <key> <value>`). Restart the helper after changing one; `defaults delete` returns a key to its default.
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `aec` | automatic | `on` or `off` forces the Mac's echo cancellation. Automatic applies it only while an app records from Tablet Audio. |
+| `aoa` | `true` | `false` keeps the helper on the adb link and never switches the tablet to accessory mode. |
+| `aecSuppress` | `-40` | Residual echo suppression in dB while only the Mac plays. Lower values remove more echo. |
+| `aecSuppressActive` | `-15` | Residual echo suppression in dB while you talk over the Mac's sound. Lower values remove more echo but also lower your voice. |
+
 ## Project layout
 
 | Folder | What it is |
@@ -131,7 +140,7 @@ driver/install.sh
 
 # Android app
 cd android
-echo "sdk.dir=/opt/homebrew/share/android-commandlinetools" > local.properties
+echo "sdk.dir=$(brew --prefix)/share/android-commandlinetools" > local.properties
 JAVA_HOME=$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home ./gradlew assembleRelease
 adb install -r app/build/outputs/apk/release/app-release.apk
 
