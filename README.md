@@ -47,7 +47,7 @@ You need a Mac with macOS 15 or later and an Android tablet with Android 8.0 or 
 ## First use
 
 1. Plug in the tablet. Within about two seconds the bridge starts in the background and a notification on the tablet shows it is running. The tablet screen stays as it is.
-2. On the Mac, choose **Tablet Audio** as the input and the output, either in System Settings > Sound or in a single app such as Zoom.
+2. On the Mac, choose **Tablet Audio** as the input and the output, either in System Settings > Sound or in a single app such as a video-call app.
 3. The first time, the tablet asks *Allow USB Audio Bridge to access USB Audio Bridge?*. Tick **Always open USB Audio Bridge when USB Audio Bridge is connected** and tap **OK**. This moves audio onto the faster USB accessory link and is not asked again.
 4. On the tablet, tap **Turn off battery limit** on the *Keep running with the screen off* banner and allow it, so battery optimization never pauses the bridge.
 

@@ -173,8 +173,8 @@ struct DefaultKeeperPolicy {
 enum DefaultKeeperSelfTest {
     static func run() -> String {
         let tablet = "UsbAudioBridge.TabletAudio"
-        let speaker = "3C-39-E7-BF-F6-1D:output"
-        let remote = "com.p5sys.jump.audio.driver_v001"
+        let speaker = "BluetoothSpeaker:output"
+        let remote = "RemoteDesktopAudio"
         let t0 = Date(timeIntervalSince1970: 1_000_000)
         func at(_ s: TimeInterval) -> Date { t0.addingTimeInterval(s) }
         var lines: [String] = []
