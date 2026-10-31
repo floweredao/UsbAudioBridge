@@ -101,6 +101,7 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
             var maxGapMs = 0L
             Log.i(TAG, "speaker connected over ${if (aoa != null) "accessory" else "adb"} (capacity ${track.bufferCapacityInFrames} frames, using ${track.bufferSizeInFrames})")
             var written = 0L
+            val stall = PlaybackStall()
             var volume = -1f
             var lastPing = 0L
             var lastUi = 0L
@@ -131,7 +132,10 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
                 if (lastArrival != 0L) maxGapMs = maxOf(maxGapMs, arrival - lastArrival)
                 lastArrival = arrival
 
-                val queuedMs = queuedFrames(written, track.playbackHeadPosition) * 1000f / Protocol.SAMPLE_RATE
+                val head = track.playbackHeadPosition
+                val queued = queuedFrames(written, head)
+                val queuedMs = queued * 1000f / Protocol.SAMPLE_RATE
+                if (stall.stalled(head, queued, arrival)) throw IOException("playback stalled with ${queuedMs.toInt()} ms queued")
                 val backlogMs = audioLanes.sumOf { it.first.backlog() }.toFloat() / BYTES_PER_MS
                 val bufferMs = queuedMs + backlogMs
                 if (track.underrunCount != underruns) {
@@ -164,8 +168,12 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
                     // Drop to catch up: keeps latency bounded when the clocks drift or a burst arrives.
                     dropped++
                 } else {
-                    track.write(reader.buffer, 0, reader.length)
-                    written += reader.length / 4
+                    // A dead track (audioserver restart, a failed route change) returns a negative code and
+                    // never advances its head, so without this the queue only ever looks too long and every
+                    // later frame is dropped. Ending the session builds a fresh track instead.
+                    val wrote = track.write(reader.buffer, 0, reader.length)
+                    if (wrote < 0) throw IOException("AudioTrack.write $wrote")
+                    written += wrote / 4
                 }
 
                 val db = Protocol.levelDb(reader.buffer, reader.length)
@@ -213,6 +221,7 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
         private const val TRIM_SLACK_MS = 6
         private const val WARMUP_MS = 1500L
         private const val SHRINK_AFTER_MS = 5000L
+        const val STALL_LIMIT_MS = 1000L
     }
 }
 
@@ -223,3 +232,22 @@ class SpeakerStreamer(private val context: Context) : Thread("uab-speaker") {
  */
 internal fun queuedFrames(written: Long, playbackHead: Int): Long =
     (written.toInt() - playbackHead).coerceAtLeast(0).toLong()
+
+/**
+ * Watches the track's playback head. A head that stands still while audio is still queued means the track
+ * stopped consuming - an audio server restart leaves one behind that keeps accepting writes - and only a
+ * fresh track recovers, so the session has to end.
+ */
+internal class PlaybackStall(private val limitMs: Long = SpeakerStreamer.STALL_LIMIT_MS) {
+    private var head = Int.MIN_VALUE
+    private var since = 0L
+
+    fun stalled(playbackHead: Int, queued: Long, nowMs: Long): Boolean {
+        if (playbackHead != head || queued <= 0L) {
+            head = playbackHead
+            since = nowMs
+            return false
+        }
+        return nowMs - since > limitMs
+    }
+}
