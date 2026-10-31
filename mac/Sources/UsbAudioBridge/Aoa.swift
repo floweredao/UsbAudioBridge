@@ -23,13 +23,30 @@ final class AoaTransport {
     private let canSwitch: () -> Bool
     private let lock = NSLock()
     private var linkActive = false
-    private var lastAttempt = Date.distantPast
+    private var gate = SwitchGate()
     private var everLinked = false
     private var failedRelinks = 0
     /// A switch that never links makes Android drop accessory mode and re-enumerate, which also drops
     /// the adb lanes; so until a link has worked, or after three relinks in a row failed, wait this long.
     private static let retryAfterFailure: TimeInterval = 600
     private static let retryAfterSuccess: TimeInterval = 5
+
+    /// Spaces out switch attempts by `wait`, and the readiness check (two adb shell calls) by
+    /// `checkInterval`: a refused check must not run again on the next 1 s poll.
+    struct SwitchGate {
+        static let checkInterval: TimeInterval = 10
+        private var lastAttempt = Date.distantPast
+        private var lastCheck = Date.distantPast
+
+        mutating func shouldSwitch(now: Date, wait: TimeInterval, canSwitch: () -> Bool) -> Bool {
+            guard now.timeIntervalSince(lastAttempt) > wait,
+                  now.timeIntervalSince(lastCheck) >= Self.checkInterval else { return false }
+            lastCheck = now
+            guard canSwitch() else { return false }
+            lastAttempt = now
+            return true
+        }
+    }
 
     init(canSwitch: @escaping () -> Bool, onLink: @escaping (Connection) -> Void) {
         self.canSwitch = canSwitch
@@ -74,8 +91,7 @@ final class AoaTransport {
         defer { devices.forEach { IOObjectRelease($0) } }
         guard let device = devices.first else { return }
         let wait = everLinked && failedRelinks < 3 ? Self.retryAfterSuccess : Self.retryAfterFailure
-        guard Date().timeIntervalSince(lastAttempt) > wait, canSwitch() else { return }
-        lastAttempt = Date()
+        guard gate.shouldSwitch(now: Date(), wait: wait, canSwitch: canSwitch) else { return }
         switchToAccessory(device)
     }
 
